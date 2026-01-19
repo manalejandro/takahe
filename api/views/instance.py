@@ -127,6 +127,9 @@ def instance_info_v2(request) -> dict:
                 "max_expiration": 2629746,
             },
             "translation": {"enabled": False},
+            "vapid": {
+                "public_key": settings.SETUP.VAPID_PUBLIC_KEY,
+            } if settings.SETUP.VAPID_PUBLIC_KEY else {},
         },
         "registrations": {
             "enabled": Config.system.signup_allowed,
