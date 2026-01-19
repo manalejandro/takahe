@@ -1,5 +1,5 @@
 ARG IMAGE_HOST=python
-ARG IMAGE_LABEL=3.11-slim-bullseye
+ARG IMAGE_LABEL=3.11-slim-trixie
 
 FROM ${IMAGE_HOST}:${IMAGE_LABEL}
 
@@ -13,7 +13,7 @@ RUN apt-get update \
         libxslt1.1 \
         nginx \
         busybox \
-        netcat \
+        netcat-traditional \
         gcc \
         libc6-dev \
         libpq-dev \
@@ -46,7 +46,7 @@ RUN nginx -t
 
 WORKDIR /takahe
 
-RUN TAKAHE_DATABASE_SERVER="postgres://x@example.com/x" TAKAHE_SECRET_KEY="takahe" TAKAHE_MAIN_DOMAIN="static.test" python3 manage.py collectstatic --noinput
+RUN TAKAHE_ALLOWED_HOSTS='["yourdomain.com","www.yourdomain.com"]' TAKAHE_DATABASE_SERVER="postgres://x@example.com/x" TAKAHE_SECRET_KEY="takahe" TAKAHE_MAIN_DOMAIN="static.test" python3 manage.py collectstatic --noinput
 
 EXPOSE 8000
 
