@@ -10,7 +10,8 @@ import django_cache_url
 import httpx
 import sentry_sdk
 from corsheaders.defaults import default_headers
-from pydantic import AnyUrl, BaseSettings, EmailStr, Field, validator
+from pydantic import AnyUrl, EmailStr, Field, field_validator
+from pydantic_settings import BaseSettings
 
 from takahe import __version__
 
@@ -77,9 +78,9 @@ class Settings(BaseSettings):
     #: Set a secret key used to protect the stator. Randomized by default.
     STATOR_TOKEN: str = Field(default_factory=lambda: secrets.token_hex(128))
 
-    #: If set, a list of allowed values for the HOST header. The default value
-    #: of '*' means any host will be accepted.
-    ALLOWED_HOSTS: list[str] = Field(default_factory=lambda: ["*"])
+    #: If set, a list of allowed values for the HOST header. An empty list
+    #: will require explicit configuration for production use.
+    ALLOWED_HOSTS: list[str] = Field(default_factory=list)
 
     #: If set, a list of hosts to accept for CORS.
     CORS_HOSTS: list[str] = Field(default_factory=list)
@@ -165,28 +166,37 @@ class Settings(BaseSettings):
     PGUSER: str = "postgres"
     PGPASSWORD: str | None = None
 
-    @validator("PGHOST", always=True)
-    def validate_db(cls, PGHOST, values):  # noqa
-        if not values.get("DATABASE_SERVER") and not PGHOST:
+    @field_validator("PGHOST")
+    @classmethod
+    def validate_db(cls, v, info):  # noqa
+        if not info.data.get("DATABASE_SERVER") and not v:
             raise ValueError("Either DATABASE_SERVER or PGHOST are required.")
-        return PGHOST
+        return v
 
-    class Config:
-        env_prefix = "TAKAHE_"
-        env_file = str(BASE_DIR / TAKAHE_ENV_FILE)
-        env_file_encoding = "utf-8"
-        # Case sensitivity doesn't work on Windows, so might as well be
-        # consistent from the get-go.
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "TAKAHE_",
+        "env_file": str(BASE_DIR / TAKAHE_ENV_FILE),
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore",
+    }
 
-        # Override the env_prefix so these fields load without TAKAHE_
-        fields = {
-            "PGHOST": {"env": "PGHOST"},
-            "PGPORT": {"env": "PGPORT"},
-            "PGNAME": {"env": "PGNAME"},
-            "PGUSER": {"env": "PGUSER"},
-            "PGPASSWORD": {"env": "PGPASSWORD"},
-        }
+    # Override env vars for PostgreSQL settings (without TAKAHE_ prefix)
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 SETUP = Settings()
@@ -195,6 +205,13 @@ SETUP = Settings()
 if not SETUP.DEBUG and SETUP.SECRET_KEY.startswith("autokey-"):
     print("You must set TAKAHE_SECRET_KEY in production")
     sys.exit(1)
+
+# Don't allow empty ALLOWED_HOSTS in production
+if not SETUP.DEBUG and not SETUP.ALLOWED_HOSTS:
+    print("You must set TAKAHE_ALLOWED_HOSTS in production")
+    print("Example: TAKAHE_ALLOWED_HOSTS=['yourdomain.com', 'www.yourdomain.com']")
+    sys.exit(1)
+
 SECRET_KEY = SETUP.SECRET_KEY
 DEBUG = SETUP.DEBUG
 
@@ -341,7 +358,7 @@ STATOR_CONCURRENCY_PER_MODEL = SETUP.STATOR_CONCURRENCY_PER_MODEL
 
 ROBOTS_TXT_DISALLOWED_USER_AGENTS = SETUP.ROBOTS_TXT_DISALLOWED_USER_AGENTS
 
-CORS_ORIGIN_ALLOW_ALL = True  # Temporary
+CORS_ORIGIN_ALLOW_ALL = False  # Security: require explicit CORS configuration
 CORS_ORIGIN_WHITELIST = SETUP.CORS_HOSTS
 CORS_ALLOW_CREDENTIALS = True
 CORS_PREFLIGHT_MAX_AGE = 604800
@@ -475,6 +492,21 @@ TAKAHE_USER_AGENT = (
     f"python-httpx/{httpx.__version__} "
     f"(Takahe/{__version__}; +https://{SETUP.MAIN_DOMAIN}/)"
 )
+
+# Security headers and settings for production
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SAMESITE = "Lax"
 
 if SETUP.LOCAL_SETTINGS:
     # Let any errors bubble up

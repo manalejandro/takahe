@@ -23,6 +23,25 @@ See [our deployment documentation](https://docs.jointakahe.org/en/latest/install
 
 For changelog and update notes, visit [our releases documentation](https://docs.jointakahe.org/en/latest/releases/).
 
+### 🔒 Security
+
+**Important:** Before deploying to production, please review our [Security Guide](SECURITY.md) for:
+- Required security configuration
+- Latest security updates and patches
+- Deployment best practices
+- Vulnerability reporting process
+
+Quick security checklist:
+```bash
+# 1. Run security verification
+python security_check.py
+
+# 2. Check Django deployment settings
+python manage.py check --deploy
+
+# 3. Review SECURITY.md for complete guidelines
+```
+
 
 ## Roadmap
 
