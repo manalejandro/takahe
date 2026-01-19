@@ -20,8 +20,8 @@ def create_subscription(
     request.token.set_push_subscription(
         {
             "endpoint": subscription.endpoint,
-            "keys": subscription.keys,
-            "alerts": data.alerts,
+            "keys": subscription.keys.dict(),
+            "alerts": data.alerts.dict(),
             "policy": data.policy,
         }
     )
@@ -51,13 +51,13 @@ def update_subscription(
     if not settings.SETUP.VAPID_PRIVATE_KEY:
         raise Http404("Push not available")
     # Get the subscription if it exists
-    subscription = schemas.PushSubscription.from_token(request.token)
-    if not subscription:
+    if not request.token.push_subscription:
         raise ApiError(404, "Not Found")
-    # Update the subscription
-    subscription.alerts = data.alerts
-    subscription.policy = data.policy
-    request.token.set_push_subscription(subscription)
+    # Update the subscription with new alerts and policy
+    current_subscription = request.token.push_subscription.copy()
+    current_subscription["alerts"] = data.alerts.dict()
+    current_subscription["policy"] = data.policy
+    request.token.set_push_subscription(current_subscription)
     # Then return the subscription
     return schemas.PushSubscription.from_token(request.token)  # type:ignore
 
@@ -67,4 +67,5 @@ def update_subscription(
 def delete_subscription(request) -> dict:
     # Unset the subscription
     request.token.push_subscription = None
+    request.token.save(update_fields=["push_subscription"])
     return {}

@@ -497,9 +497,13 @@ class PushSubscription(Schema):
     ) -> Optional["PushSubscription"]:
         value = token.push_subscription
         if value:
-            value["id"] = "1"
-            value["server_key"] = settings.SETUP.VAPID_PUBLIC_KEY
-            del value["keys"]
-            return value
+            # Create a copy to avoid modifying the original
+            result = value.copy()
+            result["id"] = "1"
+            result["server_key"] = settings.SETUP.VAPID_PUBLIC_KEY
+            # Remove keys from response (they should never be sent back to client)
+            if "keys" in result:
+                del result["keys"]
+            return cls(**result)
         else:
             return None
