@@ -1,6 +1,9 @@
+import logging
 import urlman
 from django.db import models
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class PushSubscriptionSchema(BaseModel):
@@ -69,6 +72,25 @@ class Token(models.Model):
         return (scope in self.scopes) or (scope_prefix in self.scopes)
 
     def set_push_subscription(self, data: dict):
-        # Validate schema and assign
-        self.push_subscription = PushSubscriptionSchema(**data).dict()
-        self.save()
+        """Set and save push subscription for this token."""
+        logger.info(f"Setting push subscription for token {self.id}")
+        logger.debug(f"Received data: {data}")
+        
+        try:
+            # Validate schema and assign
+            validated_data = PushSubscriptionSchema(**data)
+            logger.debug(f"Validated data: {validated_data}")
+            
+            self.push_subscription = validated_data.dict()
+            logger.debug(f"push_subscription set to: {self.push_subscription}")
+            
+            self.save()
+            logger.info(f"Token {self.id} saved with push_subscription")
+            
+            # Verify it was saved
+            self.refresh_from_db()
+            logger.info(f"After refresh: push_subscription is {'set' if self.push_subscription else 'NULL'}")
+            
+        except Exception as e:
+            logger.error(f"Error setting push subscription for token {self.id}: {e}", exc_info=True)
+            raise
