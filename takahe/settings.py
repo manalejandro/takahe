@@ -10,8 +10,7 @@ import django_cache_url
 import httpx
 import sentry_sdk
 from corsheaders.defaults import default_headers
-from pydantic import AnyUrl, EmailStr, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import AnyUrl, BaseSettings, EmailStr, Field, validator
 
 from takahe import __version__
 
@@ -166,37 +165,26 @@ class Settings(BaseSettings):
     PGUSER: str = "postgres"
     PGPASSWORD: str | None = None
 
-    @field_validator("PGHOST")
-    @classmethod
-    def validate_db(cls, v, info):  # noqa
-        if not info.data.get("DATABASE_SERVER") and not v:
+    @validator("PGHOST", always=True)
+    def validate_db(cls, PGHOST, values):  # noqa
+        if not values.get("DATABASE_SERVER") and not PGHOST:
             raise ValueError("Either DATABASE_SERVER or PGHOST are required.")
-        return v
+        return PGHOST
 
-    model_config = {
-        "env_prefix": "TAKAHE_",
-        "env_file": str(BASE_DIR / TAKAHE_ENV_FILE),
-        "env_file_encoding": "utf-8",
-        "case_sensitive": False,
-        "extra": "ignore",
-    }
+    class Config:
+        env_prefix = "TAKAHE_"
+        env_file = str(BASE_DIR / TAKAHE_ENV_FILE)
+        env_file_encoding = "utf-8"
+        case_sensitive = False
 
-    # Override env vars for PostgreSQL settings (without TAKAHE_ prefix)
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls,
-        init_settings,
-        env_settings,
-        dotenv_settings,
-        file_secret_settings,
-    ):
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            file_secret_settings,
-        )
+        # Override the env_prefix so these fields load without TAKAHE_
+        fields = {
+            "PGHOST": {"env": "PGHOST"},
+            "PGPORT": {"env": "PGPORT"},
+            "PGNAME": {"env": "PGNAME"},
+            "PGUSER": {"env": "PGUSER"},
+            "PGPASSWORD": {"env": "PGPASSWORD"},
+        }
 
 
 SETUP = Settings()
