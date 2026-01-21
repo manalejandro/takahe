@@ -91,10 +91,15 @@ urlpatterns = [
     # Preferences
     path("v1/preferences", preferences.preferences),
     # Push
-    path("v1/push/subscription", push.get_subscription),
-    path("v1/push/subscription", push.create_subscription),
-    path("v1/push/subscription", push.update_subscription),
-    path("v1/push/subscription", push.delete_subscription),
+    path(
+        "v1/push/subscription",
+        methods(
+            get=push.get_subscription,
+            post=push.create_subscription,
+            put=push.update_subscription,
+            delete=push.delete_subscription,
+        ),
+    ),
     # Search
     path("v1/search", search.search),
     path("v2/search", search.search),
