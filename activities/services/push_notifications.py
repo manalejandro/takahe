@@ -191,11 +191,16 @@ class PushNotificationSender:
         }
         
         # Send the notification
+        # Convert private key from base64url to PEM format for pywebpush
+        from core.vapid_utils import get_vapid_private_key_for_pywebpush
+        
         try:
+            vapid_private_pem = get_vapid_private_key_for_pywebpush()
+            
             webpush(
                 subscription_info=subscription,
                 data=json.dumps(payload),
-                vapid_private_key=settings.SETUP.VAPID_PRIVATE_KEY,
+                vapid_private_key=vapid_private_pem,
                 vapid_claims={
                     "sub": f"mailto:notifications@{settings.SETUP.MAIN_DOMAIN}"
                 }
