@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - Takahe Streaming</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .input-group {
+            margin: 20px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #disconnect {
+            background: #f44336;
+        }
+        #disconnect:hover {
+            background: #da190b;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.disconnected {
+            background: #ffd6d6;
+            color: #c00;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .logs {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            word-wrap: break-word;
+        }
+        .log-timestamp {
+            color: #888;
+        }
+        .log-error {
+            color: #f00;
+        }
+        .log-success {
+            color: #0f0;
+        }
+        .log-info {
+            color: #ff0;
+        }
+        .clear-logs {
+            background: #666;
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+        .clear-logs:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Streaming Test</h1>
+        
+        <div class="input-group">
+            <label for="server">Servidor WebSocket:</label>
+            <input type="text" id="server" value="wss://social.manalejandro.com/api/v1/streaming" placeholder="wss://your-server.com/api/v1/streaming">
+        </div>
+
+        <div class="input-group">
+            <label for="stream">Tipo de Stream:</label>
+            <select id="stream">
+                <option value="user">User (requiere autenticación)</option>
+                <option value="public">Public</option>
+                <option value="public:local">Public Local</option>
+            </select>
+        </div>
+        
+        <div class="input-group">
+            <label for="token">Access Token:</label>
+            <input type="text" id="token" value="HVNczap2acmqgqfIuJeGb5gMx0oa-ClaX8hUfHzey9IqdZ0RxkFFBsPhvw" placeholder="Tu access token aquí">
+        </div>
+        
+        <div id="status" class="status disconnected">
+            ⭕ Desconectado
+        </div>
+        
+        <div>
+            <button id="connect" onclick="connect()">Conectar</button>
+            <button id="disconnect" onclick="disconnect()" disabled>Desconectar</button>
+            <button class="clear-logs" onclick="clearLogs()">Limpiar Logs</button>
+        </div>
+        
+        <h3>Logs de Conexión:</h3>
+        <div id="logs" class="logs"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 3;
+
+        function log(message, type = 'info') {
+            const logsDiv = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString('es-ES', {hour12: false});
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function setStatus(status, message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${status}`;
+            statusDiv.textContent = message;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            log('Logs limpiados', 'info');
+        }
+
+        function connect() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                log('Ya existe una conexión activa', 'error');
+                return;
+            }
+
+            const server = document.getElementById('server').value;
+            const stream = document.getElementById('stream').value;
+            const token = document.getElementById('token').value;
+
+            if (!server || !stream) {
+                log('ERROR: Servidor y stream son requeridos', 'error');
+                return;
+            }
+
+            // Build WebSocket URL
+            const url = `${server}?stream=${encodeURIComponent(stream)}${token ? '&access_token=' + encodeURIComponent(token) : ''}`;
+            
+            log(`Conectando a: ${url}`, 'info');
+            setStatus('connecting', '🔄 Conectando...');
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = function(event) {
+                    log('✅ WebSocket conectado exitosamente!', 'success');
+                    setStatus('connected', '✅ Conectado');
+                    document.getElementById('connect').disabled = true;
+                    document.getElementById('disconnect').disabled = false;
+                    reconnectAttempts = 0;
+                };
+
+                ws.onmessage = function(event) {
+                    log(`📨 Mensaje recibido: ${event.data.substring(0, 200)}...`, 'success');
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.event === 'update') {
+                            const payload = JSON.parse(data.payload);
+                            log(`   └─ Evento: ${data.event}, De: @${payload.account?.username || 'unknown'}`, 'success');
+                        }
+                    } catch (e) {
+                        // Not JSON, that's ok
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    log(`❌ ERROR WebSocket: ${error.message || 'Error desconocido'}`, 'error');
+                    console.error('WebSocket error:', error);
+                    setStatus('disconnected', '❌ Error de conexión');
+                };
+
+                ws.onclose = function(event) {
+                    log(`🔌 WebSocket cerrado - Código: ${event.code}, Razón: ${event.reason || 'Sin razón especificada'}`, 'error');
+                    
+                    if (event.code === 1006) {
+                        log(`   ⚠️  Código 1006 = Conexión anormal. Posibles causas:`, 'error');
+                        log(`      - El servidor rechazó la conexión (401, 403, etc.)`, 'error');
+                        log(`      - Problema de red o timeout`, 'error');
+                        log(`      - El servidor cerró sin handshake apropiado`, 'error');
+                    } else if (event.code === 4401) {
+                        log(`   ⚠️  Código 4401 = Token de acceso inválido`, 'error');
+                    } else if (event.code === 4400) {
+                        log(`   ⚠️  Código 4400 = Parámetros inválidos`, 'error');
+                    }
+                    
+                    setStatus('disconnected', '⭕ Desconectado');
+                    document.getElementById('connect').disabled = false;
+                    document.getElementById('disconnect').disabled = true;
+                };
+
+            } catch (error) {
+                log(`❌ Error al crear WebSocket: ${error.message}`, 'error');
+                setStatus('disconnected', '❌ Error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                log('Desconectando...', 'info');
+                ws.close(1000, 'Usuario cerró la conexión');
+                ws = null;
+            }
+        }
+
+        // Initial log
+        log('WebSocket Test listo. Configura los parámetros y haz clic en Conectar.', 'info');
+        log('', 'info');
+        log('Instrucciones:', 'info');
+        log('1. Verifica que el servidor WebSocket esté correcto', 'info');
+        log('2. Selecciona el tipo de stream (user requiere token)', 'info');
+        log('3. Ingresa tu access token si es necesario', 'info');
+        log('4. Haz clic en Conectar', 'info');
+        log('', 'info');
+        log('Si ves código 1006, revisa los logs del servidor para más detalles.', 'info');
+    </script>
+</body>
+</html>
