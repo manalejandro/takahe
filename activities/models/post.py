@@ -372,7 +372,9 @@ class Post(StatorModel):
             return "https"
 
         def get_hostname(self, url):
-            return self.instance.author.domain.uri_domain
+            if self.instance.author and self.instance.author.domain:
+                return self.instance.author.domain.uri_domain
+            return "localhost"
 
     def __str__(self):
         return f"{self.author} #{self.id}"
@@ -697,9 +699,13 @@ class Post(StatorModel):
             value["cc"].append(mention.actor_uri)
         # Hashtags
         for hashtag in self.hashtags or []:
+            if self.author and self.author.domain:
+                tag_url = f"https://{self.author.domain.uri_domain}/tags/{hashtag}/"
+            else:
+                tag_url = f"/tags/{hashtag}/"
             value["tag"].append(
                 {
-                    "href": f"https://{self.author.domain.uri_domain}/tags/{hashtag}/",
+                    "href": tag_url,
                     "name": f"#{hashtag}",
                     "type": "Hashtag",
                 }
@@ -1184,7 +1190,9 @@ class Post(StatorModel):
                 [
                     {
                         "name": tag,
-                        "url": f"https://{self.author.domain.uri_domain}/tags/{tag}/",
+                        "url": f"https://{self.author.domain.uri_domain}/tags/{tag}/"
+                        if self.author.domain
+                        else f"/tags/{tag}/",
                     }
                     for tag in self.hashtags
                 ]
