@@ -18,6 +18,7 @@ from api.views import (
     push,
     search,
     statuses,
+    streaming,
     suggestions,
     tags,
     timelines,
@@ -103,6 +104,9 @@ urlpatterns = [
     # Search
     path("v1/search", search.search),
     path("v2/search", search.search),
+    # Streaming
+    path("v1/streaming", streaming.streaming),
+    path("v1/streaming/health", streaming.health),
     # Statuses
     path("v1/statuses", statuses.post_status),
     path("v1/statuses/<id>/context", statuses.status_context),
