@@ -153,12 +153,7 @@ async def streaming_websocket(scope, receive, send):
             })
             return
     
-    print(f"✓ All validations passed, accepting WebSocket connection for stream: {stream}")
-    
-    # Accept the WebSocket connection
-    await send({
-        "type": "websocket.accept",
-    })
+    print(f"✓ All validations passed, starting WebSocket streaming for: {stream}")
     
     # Start streaming events
     try:
