@@ -106,6 +106,28 @@ server {
         add_header X-Cache $upstream_cache_status;
     }
 
+    # WebSocket support for streaming API
+    location /api/v1/streaming {
+        proxy_pass http://takahe;
+        proxy_redirect off;
+        proxy_buffering off;
+        
+        # WebSocket specific headers
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Standard proxy headers
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        
+        # Long timeouts for persistent connections
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
     # Default config for all other pages
     location / {
         proxy_redirect off;

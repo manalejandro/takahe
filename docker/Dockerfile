@@ -50,7 +50,9 @@ RUN TAKAHE_ALLOWED_HOSTS='["yourdomain.com","www.yourdomain.com"]' TAKAHE_DATABA
 
 EXPOSE 8000
 
-# Set some sensible defaults
-ENV GUNICORN_CMD_ARGS="--workers 8"
+# Set some sensible defaults for uvicorn (ASGI server with WebSocket support)
+# Note: For backwards compatibility, GUNICORN_CMD_ARGS is still respected in run.sh
+# but UVICORN_EXTRA_CMD_ARGS should be used instead
+ENV TAKAHE_WEB_WORKERS="4"
 
 CMD ["bash", "docker/run.sh"]

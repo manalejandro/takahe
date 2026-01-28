@@ -9,10 +9,13 @@ if [ -z "$NAMESERVER" ]; then
 fi
 sed "s/__CACHESIZE__/${CACHE_SIZE}/g" /etc/nginx/conf.d/default.conf.tpl | sed "s/__NAMESERVER__/${NAMESERVER}/g" > /etc/nginx/conf.d/default.conf
 
-# Run nginx and gunicorn
+# Run nginx and uvicorn (ASGI server with WebSocket support)
 nginx &
 
-gunicorn takahe.wsgi:application -b 0.0.0.0:8001 $GUNICORN_EXTRA_CMD_ARGS &
+# Use uvicorn instead of gunicorn for WebSocket support
+# Note: GUNICORN_EXTRA_CMD_ARGS will be ignored, use UVICORN_EXTRA_CMD_ARGS instead
+WORKERS="${TAKAHE_WEB_WORKERS:-4}"
+uvicorn takahe.asgi:application --host 0.0.0.0 --port 8001 --workers $WORKERS $UVICORN_EXTRA_CMD_ARGS &
 
 # Wait for any process to exit
 wait -n
