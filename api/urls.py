@@ -104,8 +104,8 @@ urlpatterns = [
     # Search
     path("v1/search", search.search),
     path("v2/search", search.search),
-    # Streaming
-    path("v1/streaming", streaming.streaming),
+    # Streaming - WebSocket endpoint is handled by ASGI router in takahe/asgi.py
+    # SSE health check endpoint
     path("v1/streaming/health", streaming.health),
     # Statuses
     path("v1/statuses", statuses.post_status),
