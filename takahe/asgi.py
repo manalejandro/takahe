@@ -38,19 +38,23 @@ async def application(scope, receive, send):
             print(f"[ASGI Router] Routing to WebSocket handler")
             await streaming_websocket(scope, receive, send)
             return
-        elif scope_type == "http":
-            # Check if this is a WebSocket upgrade request
-            headers_dict = dict(scope.get("headers", []))
-            upgrade_header = headers_dict.get(b"upgrade", b"").decode("utf-8").lower()
-            
-            if upgrade_header == "websocket":
-                print(f"[ASGI Router] WebSocket upgrade request detected, routing to WebSocket handler")
-                # Convert HTTP scope to WebSocket scope
-                scope["type"] = "websocket"
-                await streaming_websocket(scope, receive, send)
-                return
-            else:
-                print(f"[ASGI Router] HTTP request to streaming endpoint, passing to Django")
+        else:
+            # If uvicorn doesn't have websockets library, it treats WebSocket as HTTP
+            # This should not happen if uvicorn[standard] is installed
+            print(f"[ASGI Router] WARNING: /api/v1/streaming received as {scope_type}, not websocket")
+            print(f"[ASGI Router] This means uvicorn doesn't have WebSocket support installed")
+            print(f"[ASGI Router] Install with: pip install 'uvicorn[standard]'")
+            # Return error to client
+            await send({
+                "type": "http.response.start",
+                "status": 500,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'{"error": "WebSocket support not available. Contact server administrator."}',
+            })
+            return
     
     # Handle WebSocket connections to unknown paths
     if scope_type == "websocket":
