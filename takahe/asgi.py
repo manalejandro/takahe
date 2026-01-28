@@ -24,13 +24,17 @@ async def application(scope, receive, send):
     """
     Main ASGI application that routes to HTTP or WebSocket handlers.
     """
+    print(f"[ASGI Router] Request type: {scope['type']}, path: {scope.get('path', 'N/A')}")
+    
     if scope["type"] == "websocket":
         # Check if this is a streaming endpoint
         path = scope.get("path", "")
         if path == "/api/v1/streaming":
+            print(f"[ASGI Router] Routing to WebSocket handler")
             await streaming_websocket(scope, receive, send)
         else:
             # Close unknown WebSocket connections
+            print(f"[ASGI Router] Unknown WebSocket path: {path}")
             await send({
                 "type": "websocket.close",
                 "code": 4404,

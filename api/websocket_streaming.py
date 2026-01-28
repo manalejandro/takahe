@@ -51,6 +51,11 @@ async def streaming_websocket(scope, receive, send):
     
     Handles WebSocket connections at /api/v1/streaming
     """
+    # CRITICAL: Accept WebSocket FIRST before any validation
+    await send({
+        "type": "websocket.accept",
+    })
+    
     # Parse query string
     query_string = scope.get("query_string", b"").decode("utf-8")
     params = parse_qs(query_string)
