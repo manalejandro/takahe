@@ -4,13 +4,45 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from asgiref.sync import sync_to_async
-from django.contrib.auth.models import AnonymousUser
 
 from activities.models import TimelineEvent
 from activities.services import TimelineService
 from api import schemas
 from api.models import Token
 from core.models import Config
+
+
+@sync_to_async
+def get_token_and_identity(access_token):
+    """
+    Fetch token and identity from database.
+    Must be a separate function for sync_to_async to work properly.
+    """
+    try:
+        token = Token.objects.select_related("identity").get(
+            token=access_token,
+            revoked__isnull=True,
+        )
+        print(f"✓ Token found: {token.token[:20]}... for identity: {token.identity.handle}")
+        return token, token.identity
+    except Token.DoesNotExist:
+        print(f"✗ Token not found: {access_token[:20]}...")
+        return None, None
+    except Exception as e:
+        print(f"✗ Token query error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, None
+
+
+@sync_to_async
+def check_public_timeline_enabled():
+    """Check if public timeline is enabled."""
+    try:
+        return Config.system.public_timeline
+    except Exception as e:
+        print(f"✗ Config query error: {e}")
+        return False
 
 
 async def streaming_websocket(scope, receive, send):
@@ -69,43 +101,21 @@ async def streaming_websocket(scope, receive, send):
     token = None
     
     if access_token:
-        try:
-            # Django ORM queries must be wrapped in sync_to_async
-            @sync_to_async
-            def get_token():
-                try:
-                    t = Token.objects.select_related("identity").get(
-                        token=access_token,
-                        revoked__isnull=True,
-                    )
-                    print(f"Token found: {t.token[:20]}... for identity: {t.identity}")
-                    return t
-                except Token.DoesNotExist:
-                    print(f"Token not found: {access_token[:20]}...")
-                    raise
-            
-            token = await get_token()
-            identity = token.identity
-            print(f"Authenticated as identity: {identity.id} - {identity.handle}")
-        except Token.DoesNotExist:
-            print(f"WebSocket auth failed: Token does not exist")
+        print(f"Attempting to authenticate with token: {access_token[:20]}...")
+        token, identity = await get_token_and_identity(access_token)
+        
+        if token is None:
+            print(f"WebSocket auth failed: Token validation failed")
             await send({
                 "type": "websocket.close",
                 "code": 4401,
                 "reason": "Invalid access token",
             })
             return
-        except Exception as e:
-            # Log any other error
-            print(f"Token validation error: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
-            await send({
-                "type": "websocket.close",
-                "code": 4401,
-                "reason": "Authentication error",
-            })
-            return
+        
+        print(f"✓ Authenticated as: {identity.handle} (ID: {identity.id})")
+    else:
+        print("No access_token provided in query string")
     
     # Check authentication requirements
     if stream == "user":
@@ -127,19 +137,18 @@ async def streaming_websocket(scope, receive, send):
     
     # Check if public timeline is enabled
     if stream.startswith("public"):
-        @sync_to_async
-        def check_public_timeline():
-            return Config.system.public_timeline
-        
-        public_timeline_enabled = await check_public_timeline()
+        public_timeline_enabled = await check_public_timeline_enabled()
         
         if not identity and not public_timeline_enabled:
+            print("Public timeline is disabled and no authentication provided")
             await send({
                 "type": "websocket.close",
                 "code": 4422,
                 "reason": "Public timeline disabled",
             })
             return
+    
+    print(f"✓ All validations passed, accepting WebSocket connection for stream: {stream}")
     
     # Accept the WebSocket connection
     await send({
