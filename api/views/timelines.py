@@ -71,19 +71,6 @@ def public(
         queryset = queryset.filter(local=False)
     if only_media:
         queryset = queryset.filter(attachments__id__isnull=True)
-    
-    # Preload relationships to avoid N+1 queries and AttributeErrors
-    queryset = queryset.select_related(
-        "author",
-        "author__domain",
-    )
-    queryset = queryset.prefetch_related(
-        "attachments",
-        "mentions",
-        "mentions__domain",
-        "emojis",
-    )
-    
     # Grab a paginated result set of instances
     paginator = MastodonPaginator()
     pager: PaginationResult[Post] = paginator.paginate(
@@ -119,19 +106,6 @@ def hashtag(
         queryset = queryset.filter(local=True)
     if only_media:
         queryset = queryset.filter(attachments__id__isnull=True)
-    
-    # Preload relationships to avoid N+1 queries and AttributeErrors
-    queryset = queryset.select_related(
-        "author",
-        "author__domain",
-    )
-    queryset = queryset.prefetch_related(
-        "attachments",
-        "mentions",
-        "mentions__domain",
-        "emojis",
-    )
-    
     # Grab a paginated result set of instances
     paginator = MastodonPaginator()
     pager: PaginationResult[Post] = paginator.paginate(
@@ -171,18 +145,6 @@ def favourites(
     limit: int = 20,
 ) -> ApiResponse[list[schemas.Status]]:
     queryset = TimelineService(request.identity).likes()
-    
-    # Preload relationships to avoid N+1 queries and AttributeErrors
-    queryset = queryset.select_related(
-        "author",
-        "author__domain",
-    )
-    queryset = queryset.prefetch_related(
-        "attachments",
-        "mentions",
-        "mentions__domain",
-        "emojis",
-    )
 
     paginator = MastodonPaginator()
     pager: PaginationResult[Post] = paginator.paginate(
