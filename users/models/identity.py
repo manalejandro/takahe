@@ -304,7 +304,9 @@ class Identity(StatorModel):
             return "https"
 
         def get_hostname(self, url):
-            return self.instance.domain.uri_domain
+            if self.instance.domain:
+                return self.instance.domain.uri_domain
+            return "localhost"
 
     def __str__(self):
         if self.username and self.domain_id:
@@ -317,7 +319,9 @@ class Identity(StatorModel):
         other servers.
         """
         if self.local:
-            return f"https://{self.domain.uri_domain}/@{self.username}/"
+            if self.domain:
+                return f"https://{self.domain.uri_domain}/@{self.username}/"
+            return f"/@{self.username}/"
         else:
             return self.profile_uri
 
@@ -328,6 +332,8 @@ class Identity(StatorModel):
         """
         if not self.local:
             return [self.profile_uri]
+        if not self.domain:
+            return [f"/@{self.username}/"]
         return [
             f"https://{self.domain.uri_domain}/@{self.username}/",
             f"https://{self.domain.uri_domain}/@{self.username}@{self.domain_id}/",
@@ -389,7 +395,8 @@ class Identity(StatorModel):
             self.featured_collection_uri = self.actor_uri + "collections/featured/"
             self.followers_uri = self.actor_uri + "followers/"
             self.following_uri = self.actor_uri + "following/"
-            self.shared_inbox_uri = f"https://{self.domain.uri_domain}/inbox/"
+            if self.domain:
+                self.shared_inbox_uri = f"https://{self.domain.uri_domain}/inbox/"
 
     def add_alias(self, actor_uri: str):
         self.aliases = (self.aliases or []) + [actor_uri]

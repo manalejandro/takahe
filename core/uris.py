@@ -34,7 +34,7 @@ class AutoAbsoluteUrl(RelativeAbsoluteUrl):
         identity=None,
     ):
         self.relative = relative
-        if identity:
+        if identity and identity.domain:
             absolute_prefix = f"https://{identity.domain.uri_domain}/"
         else:
             absolute_prefix = f"https://{settings.MAIN_DOMAIN}/"
