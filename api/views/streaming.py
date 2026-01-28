@@ -2,13 +2,13 @@ import json
 import time
 from typing import Generator
 
-from django.http import HttpRequest, StreamingHttpResponse
-from hatchway import ApiError, api_view
+from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
 from activities.models import Post, TimelineEvent
 from activities.services import TimelineService
 from api import schemas
-from api.decorators import scope_required
 from core.models import Config
 
 
@@ -24,6 +24,9 @@ def event_stream_generator(
     # Send initial connection event
     yield f": connected to {stream_type} stream\n\n"
 
+    # Get identity safely
+    identity = getattr(request, 'identity', None)
+    
     last_event_id = None
     check_interval = 2.0  # Check for new events every 2 seconds
     ping_interval = 15  # Send ping every 15 seconds
@@ -37,17 +40,17 @@ def event_stream_generator(
             queryset = None
             
             if stream_type == "user":
-                if not request.identity:
+                if not identity:
                     break
-                queryset = TimelineService(request.identity).home()
+                queryset = TimelineService(identity).home()
             elif stream_type == "public":
-                queryset = TimelineService(request.identity).federated()
+                queryset = TimelineService(identity).federated()
             elif stream_type == "public:local":
-                queryset = TimelineService(request.identity).local()
+                queryset = TimelineService(identity).local()
             elif stream_type == "hashtag" and hashtag:
-                queryset = TimelineService(request.identity).hashtag(hashtag.lower())
+                queryset = TimelineService(identity).hashtag(hashtag.lower())
             elif stream_type == "hashtag:local" and hashtag:
-                queryset = TimelineService(request.identity).hashtag(hashtag.lower()).filter(local=True)
+                queryset = TimelineService(identity).hashtag(hashtag.lower()).filter(local=True)
             elif stream_type == "list" and list_id:
                 # List timeline not fully implemented yet
                 time.sleep(check_interval)
@@ -82,14 +85,14 @@ def event_stream_generator(
                     if event.type == TimelineEvent.Types.post:
                         status_data = schemas.Status.from_post(
                             event.subject_post,
-                            identity=request.identity,
+                            identity=identity,
                         )
                         payload = json.dumps(status_data.dict())
                         yield f"event: update\ndata: {payload}\n\n"
                     elif event.type == TimelineEvent.Types.boost:
                         status_data = schemas.Status.from_post(
                             event.subject_post,
-                            identity=request.identity,
+                            identity=identity,
                         )
                         payload = json.dumps(status_data.dict())
                         yield f"event: update\ndata: {payload}\n\n"
@@ -114,7 +117,7 @@ def event_stream_generator(
                     last_event_id = str(post.id)
                     status_data = schemas.Status.from_post(
                         post,
-                        identity=request.identity,
+                        identity=identity,
                     )
                     payload = json.dumps(status_data.dict())
                     yield f"event: update\ndata: {payload}\n\n"
@@ -135,14 +138,9 @@ def event_stream_generator(
         yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
 
-@scope_required("read:statuses", requires_identity=False)
-@api_view.get
-def streaming(
-    request: HttpRequest,
-    stream: str | None = None,
-    tag: str | None = None,
-    list: str | None = None,
-) -> StreamingHttpResponse:
+@csrf_exempt
+@require_http_methods(["GET"])
+def streaming(request: HttpRequest) -> StreamingHttpResponse | JsonResponse:
     """
     WebSocket-alternative streaming API endpoint using Server-Sent Events.
     
@@ -154,35 +152,50 @@ def streaming(
     - hashtag:local: Updates for a local hashtag (requires 'tag' parameter)
     - list: Updates for a specific list (requires 'list' parameter)
     """
+    # Get parameters
+    stream = request.GET.get("stream")
+    tag = request.GET.get("tag")
+    list_id = request.GET.get("list")
+    
     # Validate stream parameter
     if not stream:
-        raise ApiError(error="stream parameter is required", status=400)
+        return JsonResponse({"error": "stream parameter is required"}, status=400)
     
     valid_streams = ["user", "public", "public:local", "hashtag", "hashtag:local", "list"]
     if stream not in valid_streams:
-        raise ApiError(
-            error=f"Invalid stream type. Must be one of: {', '.join(valid_streams)}",
+        return JsonResponse(
+            {"error": f"Invalid stream type. Must be one of: {', '.join(valid_streams)}"},
             status=400,
         )
     
     # Validate required parameters for specific streams
     if stream in ["hashtag", "hashtag:local"] and not tag:
-        raise ApiError(error="tag parameter is required for hashtag streams", status=400)
+        return JsonResponse({"error": "tag parameter is required for hashtag streams"}, status=400)
     
-    if stream == "list" and not list:
-        raise ApiError(error="list parameter is required for list stream", status=400)
+    if stream == "list" and not list_id:
+        return JsonResponse({"error": "list parameter is required for list stream"}, status=400)
+    
+    # Get identity safely
+    identity = getattr(request, 'identity', None)
+    token = getattr(request, 'token', None)
     
     # User stream requires authentication
-    if stream == "user" and not request.identity:
-        raise ApiError(error="Authentication required for user stream", status=401)
+    if stream == "user":
+        if not identity:
+            return JsonResponse({"error": "Authentication required for user stream"}, status=401)
+        
+        # Check scope
+        if token and not token.has_scope("read:statuses"):
+            return JsonResponse({"error": "Insufficient scope"}, status=403)
     
     # Public streams might be disabled
-    if stream.startswith("public") and not request.identity and not Config.system.public_timeline:
-        raise ApiError(error="Public timeline is disabled", status=422)
+    if stream.startswith("public"):
+        if not identity and not Config.system.public_timeline:
+            return JsonResponse({"error": "Public timeline is disabled"}, status=422)
     
     # Create streaming response with SSE headers
     response = StreamingHttpResponse(
-        event_stream_generator(request, stream, hashtag=tag, list_id=list),
+        event_stream_generator(request, stream, hashtag=tag, list_id=list_id),
         content_type="text/event-stream",
     )
     response["Cache-Control"] = "no-cache"
@@ -191,9 +204,10 @@ def streaming(
     return response
 
 
-@api_view.get
-def health(request: HttpRequest) -> dict:
+@csrf_exempt
+@require_http_methods(["GET"])
+def health(request: HttpRequest) -> JsonResponse:
     """
     Health check endpoint for the streaming service.
     """
-    return {"status": "ok"}
+    return JsonResponse({"status": "ok"})
