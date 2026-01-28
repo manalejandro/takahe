@@ -9,9 +9,13 @@ https://docs.djangoproject.com/en/4.1/howto/deployment/asgi/
 
 import os
 
+import django
 from django.core.asgi import get_asgi_application
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "takahe.settings")
+
+# Initialize Django BEFORE importing anything else
+django.setup()
 
 # Get Django ASGI application early to populate apps registry
 django_asgi_app = get_asgi_application()
