@@ -176,8 +176,46 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
     """
     Stream events to the WebSocket client.
     """
+    # Initialize last_event_id with the current latest event/post ID
+    # This prevents sending historical events on connection
     last_event_id = None
     check_interval = 2.0  # Check for new events every 2 seconds
+    
+    print(f"[WebSocket] Initializing stream for {stream_type}, getting baseline...")
+    
+    # Get baseline - the latest event/post ID without sending it
+    # This marks our starting point for NEW events only
+    try:
+        if stream_type == "user":
+            if identity:
+                queryset = TimelineService(identity).home().select_related("subject_post")
+                latest_event = await asyncio.to_thread(lambda: queryset.order_by("-id").first())
+                if latest_event:
+                    last_event_id = str(latest_event.id)
+                    print(f"[WebSocket] Baseline event ID: {last_event_id}")
+        else:
+            # For public timelines, get latest post ID directly from the timeline service
+            queryset = None
+            if stream_type == "public":
+                queryset = TimelineService(identity).federated()
+            elif stream_type == "public:local":
+                queryset = TimelineService(identity).local()
+            elif stream_type in ["hashtag", "hashtag:local"] and hashtag:
+                queryset = TimelineService(identity).hashtag(hashtag.lower())
+                if stream_type == "hashtag:local":
+                    queryset = queryset.filter(local=True)
+            
+            if queryset is not None:
+                latest_post = await asyncio.to_thread(lambda: queryset.order_by("-id").first())
+                if latest_post:
+                    last_event_id = str(latest_post.id)
+                    print(f"[WebSocket] Baseline post ID: {last_event_id}")
+    except Exception as e:
+        print(f"[WebSocket] Error getting baseline: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print(f"[WebSocket] Stream started, sending only NEW events from now on")
     
     # Task to handle incoming messages (mostly for connection checks)
     async def handle_incoming():
@@ -239,6 +277,9 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                     lambda: list(queryset.order_by("id")[:20])
                 )
                 
+                if events:
+                    print(f"[WebSocket] Found {len(events)} new events for user stream")
+                
                 for event in events:
                     last_event_id = str(event.id)
                     
@@ -290,6 +331,9 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                 posts = await asyncio.to_thread(
                     lambda: list(queryset.order_by("id")[:20])
                 )
+                
+                if posts:
+                    print(f"[WebSocket] Found {len(posts)} new posts for {stream_type} stream")
                 
                 for post in posts:
                     last_event_id = str(post.id)
