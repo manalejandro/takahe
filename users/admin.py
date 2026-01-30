@@ -107,8 +107,8 @@ class UserEventAdmin(admin.ModelAdmin):
 
 @admin.register(Identity)
 class IdentityAdmin(admin.ModelAdmin):
-    list_display = ["id", "handle", "actor_uri", "state", "local"]
-    list_filter = ("local", "state", "discoverable")
+    list_display = ["id", "handle", "actor_uri", "state", "local", "auto_delete_posts"]
+    list_filter = ("local", "state", "discoverable", "auto_delete_posts")
     autocomplete_fields = ["users"]
     actions = ["force_update"]
     readonly_fields = ["handle", "actor_json"]

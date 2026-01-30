@@ -273,6 +273,19 @@ class Identity(StatorModel):
     public_key = models.TextField(null=True, blank=True)
     public_key_id = models.TextField(null=True, blank=True)
 
+    # Auto-delete settings for posts
+    class AutoDeleteDuration(models.IntegerChoices):
+        DISABLED = 0, "Disabled"
+        ONE_DAY = 1, "1 Day"
+        ONE_WEEK = 7, "1 Week"
+        ONE_MONTH = 30, "1 Month"
+
+    auto_delete_posts = models.IntegerField(
+        choices=AutoDeleteDuration.choices,
+        default=AutoDeleteDuration.DISABLED,
+        help_text="Automatically delete posts older than the specified duration",
+    )
+
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     fetched = models.DateTimeField(null=True, blank=True)

@@ -96,7 +96,18 @@ class PostStates(StateGraph):
     def handle_fanned_out(cls, instance: "Post"):
         """
         For remote posts, sees if we can delete them every so often.
+        Also handles auto-deletion for local posts based on user settings.
         """
+        # Check for auto-deletion of local posts based on user settings
+        if instance.local and instance.author.auto_delete_posts > 0:
+            age_threshold = timezone.now() - datetime.timedelta(
+                days=instance.author.auto_delete_posts
+            )
+            if instance.published < age_threshold:
+                # Auto-delete the post
+                instance.transition_perform(PostStates.deleted)
+                return
+        
         # Skip all of this if the horizon is zero
         if settings.SETUP.REMOTE_PRUNE_HORIZON <= 0:
             return
