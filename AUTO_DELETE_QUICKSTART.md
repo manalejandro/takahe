@@ -15,7 +15,19 @@
 
 ### For a Single User
 
-Use the helper script:
+**Option 1: Using Django Management Command (Recommended)**
+```bash
+# View current setting
+python manage.py set_auto_delete user@example.com
+
+# Enable auto-delete after 1 week
+python manage.py set_auto_delete user@example.com 1week
+
+# Disable auto-delete
+python manage.py set_auto_delete user@example.com disabled
+```
+
+**Option 2: Using Helper Script**
 ```bash
 # View current setting
 python scripts/set_auto_delete.py user@example.com

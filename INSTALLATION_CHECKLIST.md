@@ -52,6 +52,13 @@ Would delete 0 posts (dry run - nothing was actually deleted)
 
 ### Test 1: Configure Auto-Delete for a User
 
+**Option 1: Using Management Command (Recommended)**
+```bash
+# Replace with your actual username and domain
+python manage.py set_auto_delete yourusername@yourdomain.com 1week
+```
+
+**Option 2: Using Helper Script**
 ```bash
 # Replace with your actual username and domain
 python scripts/set_auto_delete.py yourusername@yourdomain.com 1week
@@ -70,6 +77,8 @@ Run: python manage.py auto_delete_posts --dry-run
 
 ### Test 2: View Current Setting
 ```bash
+python manage.py set_auto_delete yourusername@yourdomain.com
+# or
 python scripts/set_auto_delete.py yourusername@yourdomain.com
 ```
 

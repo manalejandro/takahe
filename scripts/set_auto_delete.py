@@ -3,14 +3,20 @@
 Helper script to configure auto-delete settings for user identities.
 
 Usage:
-    python set_auto_delete.py username@domain.com [disabled|1day|1week|1month]
+    python scripts/set_auto_delete.py username@domain.com [disabled|1day|1week|1month]
+    
+    Or from the scripts directory:
+    cd scripts && python set_auto_delete.py username@domain.com [disabled|1day|1week|1month]
 """
 import os
 import sys
 import django
 
-# Set up Django environment
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Set up Django environment - add the parent directory to the path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(script_dir)
+sys.path.insert(0, project_dir)
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "takahe.settings")
 django.setup()
 
@@ -19,7 +25,7 @@ from users.models.identity import Identity
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python set_auto_delete.py username@domain.com [disabled|1day|1week|1month]")
+        print("Usage: python scripts/set_auto_delete.py username@domain.com [disabled|1day|1week|1month]")
         print("\nAvailable options:")
         print("  disabled - Disable auto-delete (default)")
         print("  1day     - Delete posts older than 1 day")
@@ -53,7 +59,7 @@ def main():
         current = dict(Identity.AutoDeleteDuration.choices)[identity.auto_delete_posts]
         print(f"Current auto-delete setting for {handle}: {current}")
         print("\nTo change, use:")
-        print(f"  python set_auto_delete.py {handle} [disabled|1day|1week|1month]")
+        print(f"  python scripts/set_auto_delete.py {handle} [disabled|1day|1week|1month]")
         return
 
     # Map setting names to values

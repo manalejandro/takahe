@@ -42,7 +42,13 @@ Implemented automatic deletion of posts/statuses for Takahe ActivityPub instance
 - Usage: `python scripts/set_auto_delete.py user@domain.com [disabled|1day|1week|1month]`
 - Shows current settings when run without setting parameter
 
-### 7. Documentation
+### 7. Django Management Command (Recommended)
+- **File**: `users/management/commands/set_auto_delete.py`
+- More reliable Django management command
+- Usage: `python manage.py set_auto_delete user@domain.com [disabled|1day|1week|1month]`
+- Better error handling and integration with Django
+
+### 8. Documentation
 - **File**: `AUTO_DELETE_POSTS.md` - Complete technical documentation
 - **File**: `AUTO_DELETE_QUICKSTART.md` - Quick start guide for users
 
@@ -50,6 +56,9 @@ Implemented automatic deletion of posts/statuses for Takahe ActivityPub instance
 
 ### Enable auto-delete for a user
 ```bash
+# Using management command (recommended)
+python manage.py set_auto_delete alice@example.com 1week
+
 # Using helper script
 python scripts/set_auto_delete.py alice@example.com 1week
 
@@ -134,10 +143,11 @@ CHECK (auto_delete_posts IN (0, 1, 7, 30));
 3. `/home/ale/projects/activitypub/takahe/activities/management/commands/auto_delete_posts.py`
 4. `/home/ale/projects/activitypub/takahe/users/migrations/0023_identity_auto_delete_posts.py`
 5. `/home/ale/projects/activitypub/takahe/users/admin.py`
-6. `/home/ale/projects/activitypub/takahe/scripts/set_auto_delete.py`
-7. `/home/ale/projects/activitypub/takahe/AUTO_DELETE_POSTS.md`
-8. `/home/ale/projects/activitypub/takahe/AUTO_DELETE_QUICKSTART.md`
-9. `/home/ale/projects/activitypub/takahe/IMPLEMENTATION_SUMMARY.md` (this file)
+6. `/home/ale/projects/activitypub/takahe/users/management/commands/set_auto_delete.py`
+7. `/home/ale/projects/activitypub/takahe/scripts/set_auto_delete.py`
+8. `/home/ale/projects/activitypub/takahe/AUTO_DELETE_POSTS.md`
+9. `/home/ale/projects/activitypub/takahe/AUTO_DELETE_QUICKSTART.md`
+10. `/home/ale/projects/activitypub/takahe/IMPLEMENTATION_SUMMARY.md` (this file)
 
 ## Next Steps
 
