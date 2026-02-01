@@ -1,6 +1,7 @@
 # Generated manually for ScheduledTask model
 from django.db import migrations, models
 import stator.models
+import core.models.scheduled_task
 
 
 class Migration(migrations.Migration):
@@ -32,7 +33,7 @@ class Migration(migrations.Migration):
                             ("failed", "failed"),
                         ],
                         default="pending",
-                        graph=None,
+                        graph=core.models.scheduled_task.ScheduledTaskStates,
                         max_length=100,
                     ),
                 ),
