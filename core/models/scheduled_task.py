@@ -16,7 +16,7 @@ class ScheduledTaskStates(StateGraph):
     State graph for scheduled tasks that need to run periodically.
     """
 
-    pending = State(try_interval=60 * 60)  # Check every hour
+    pending = State(try_interval=60 * 60, initial=True)  # Check every hour
     running = State(externally_progressed=True)
     completed = State(externally_progressed=True)
     failed = State(externally_progressed=True)
