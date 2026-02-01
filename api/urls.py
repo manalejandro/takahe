@@ -5,17 +5,24 @@ from api.views import (
     accounts,
     announcements,
     apps,
+    blocks,
     bookmarks,
+    domain_blocks,
     emoji,
+    endorsements,
     filters,
     follow_requests,
     instance,
     lists,
+    markers,
     media,
+    mutes,
     notifications,
     polls,
     preferences,
     push,
+    reports,
+    scheduled_statuses,
     search,
     statuses,
     streaming,
@@ -44,14 +51,31 @@ urlpatterns = [
     path("v1/accounts/<id>/following", accounts.account_following),
     path("v1/accounts/<id>/followers", accounts.account_followers),
     path("v1/accounts/<id>/featured_tags", accounts.account_featured_tags),
+    path("v1/accounts/<id>/lists", accounts.account_lists),
+    path("v1/accounts/<id>/note", accounts.account_note),
+    path("v1/accounts/<id>/pin", endorsements.endorse_account),
+    path("v1/accounts/<id>/unpin", endorsements.unendorse_account),
     # Announcements
     path("v1/announcements", announcements.announcement_list),
     path("v1/announcements/<pk>/dismiss", announcements.announcement_dismiss),
     # Apps
     path("v1/apps", apps.add_app),
     path("v1/apps/verify_credentials", apps.verify_credentials),
+    # Blocks
+    path("v1/blocks", blocks.blocks),
     # Bookmarks
     path("v1/bookmarks", bookmarks.bookmarks),
+    # Domain Blocks
+    path(
+        "v1/domain_blocks",
+        methods(
+            get=domain_blocks.domain_blocks,
+            post=domain_blocks.block_domain,
+            delete=domain_blocks.unblock_domain,
+        ),
+    ),
+    # Endorsements
+    path("v1/endorsements", endorsements.endorsements),
     # Emoji
     path("v1/custom_emojis", emoji.emojis),
     # Filters
@@ -67,11 +91,30 @@ urlpatterns = [
     path("v1/instance/peers", instance.peers),
     path("v2/instance", instance.instance_info_v2),
     # Lists
-    path("v1/lists", lists.get_lists),
+    path("v1/lists", methods(get=lists.get_lists, post=lists.create_list)),
+    path(
+        "v1/lists/<id>",
+        methods(
+            get=lists.get_list,
+            put=lists.update_list,
+            delete=lists.delete_list,
+        ),
+    ),
+    path("v1/lists/<id>/accounts", methods(get=lists.get_list_accounts, post=lists.add_list_accounts, delete=lists.remove_list_accounts)),
+    # Markers
+    path(
+        "v1/markers",
+        methods(
+            get=markers.markers,
+            post=markers.update_markers,
+        ),
+    ),
     # Media
     path("v1/media", media.upload_media),
     path("v2/media", media.upload_media),
     path("v1/media/<id>", methods(get=media.get_media, put=media.update_media)),
+    # Mutes
+    path("v1/mutes", mutes.mutes),
     path(
         "v1/statuses/<id>",
         methods(
@@ -99,6 +142,18 @@ urlpatterns = [
             post=push.create_subscription,
             put=push.update_subscription,
             delete=push.delete_subscription,
+        ),
+    ),
+    # Reports
+    path("v1/reports", reports.create_report),
+    # Scheduled Statuses
+    path("v1/scheduled_statuses", scheduled_statuses.scheduled_statuses),
+    path(
+        "v1/scheduled_statuses/<id>",
+        methods(
+            get=scheduled_statuses.scheduled_status,
+            put=scheduled_statuses.update_scheduled_status,
+            delete=scheduled_statuses.delete_scheduled_status,
         ),
     ),
     # Search
@@ -129,6 +184,7 @@ urlpatterns = [
     path("v1/timelines/home", timelines.home),
     path("v1/timelines/public", timelines.public),
     path("v1/timelines/tag/<hashtag>", timelines.hashtag),
+    path("v1/timelines/list/<id>", timelines.list_timeline),
     path("v1/conversations", timelines.conversations),
     path("v1/favourites", timelines.favourites),
     # Trends

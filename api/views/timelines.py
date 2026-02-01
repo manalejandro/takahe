@@ -1,4 +1,6 @@
+from django.db import models
 from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
 from hatchway import ApiError, ApiResponse, api_view
 
 from activities.models import Post, TimelineEvent
@@ -7,6 +9,7 @@ from api import schemas
 from api.decorators import scope_required
 from api.pagination import MastodonPaginator, PaginatingApiResponse, PaginationResult
 from core.models import Config
+from users.models import List, ListMember
 
 
 @scope_required("read:statuses")
@@ -145,6 +148,71 @@ def hashtag(
         schemas.Status.map_from_post(pager.results, request.identity),
         request=request,
         include_params=["limit", "local", "remote", "only_media"],
+    )
+
+
+@scope_required("read:statuses")
+@api_view.get
+def list_timeline(
+    request: HttpRequest,
+    id: str,
+    max_id: str | None = None,
+    since_id: str | None = None,
+    min_id: str | None = None,
+    limit: int = 20,
+) -> ApiResponse[list[schemas.Status]]:
+    """
+    Get a timeline of posts from accounts in a list.
+    """
+    # Get the list and verify ownership
+    lst = get_object_or_404(List, id=id, owner=request.identity)
+
+    # Get all identity IDs in this list
+    list_identity_ids = ListMember.objects.filter(list=lst).values_list(
+        "identity_id", flat=True
+    )
+
+    # Get posts from those identities
+    queryset = (
+        Post.objects.filter(
+            author_id__in=list_identity_ids,
+        )
+        .not_hidden()
+        .visible_to(request.identity, include_replies=True)
+        .select_related("author", "author__domain")
+        .prefetch_related(
+            "attachments",
+            "mentions",
+            "mentions__domain",
+            "emojis",
+        )
+        .order_by("-published")
+    )
+
+    # Apply replies policy
+    if lst.replies_policy == List.RepliesPolicy.NONE:
+        queryset = queryset.filter(in_reply_to__isnull=True)
+    elif lst.replies_policy == List.RepliesPolicy.LIST:
+        # Only show replies to other list members
+        queryset = queryset.filter(
+            models.Q(in_reply_to__isnull=True)
+            | models.Q(in_reply_to__author_id__in=list_identity_ids)
+        )
+    # FOLLOWED policy shows all replies (default behavior)
+
+    paginator = MastodonPaginator()
+    pager: PaginationResult[Post] = paginator.paginate(
+        queryset,
+        min_id=min_id,
+        max_id=max_id,
+        since_id=since_id,
+        limit=limit,
+    )
+
+    return PaginatingApiResponse(
+        schemas.Status.map_from_post(pager.results, request.identity),
+        request=request,
+        include_params=["limit", "id"],
     )
 
 

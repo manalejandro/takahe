@@ -373,3 +373,53 @@ def account_followers(
 def account_featured_tags(request: HttpRequest, id: str) -> list[schemas.FeaturedTag]:
     # Not implemented yet
     return []
+
+
+@scope_required("write:accounts")
+@api_view.post
+def account_note(
+    request: HttpRequest,
+    id: str,
+    comment: QueryOrBody[str] = "",
+) -> schemas.Relationship:
+    """
+    Add a private note to an account.
+    """
+    from users.models import AccountNote
+    
+    identity = get_object_or_404(Identity, pk=id)
+    
+    # Update or create the note
+    AccountNote.objects.update_or_create(
+        identity=request.identity,
+        target=identity,
+        defaults={"note": comment},
+    )
+    
+    return schemas.Relationship.from_identity_pair(identity, request.identity)
+
+
+@scope_required("read:lists")
+@api_view.get
+def account_lists(request: HttpRequest, id: str) -> list[schemas.List]:
+    """
+    Get lists that contain the given account.
+    """
+    from users.models import List, ListMember
+    
+    identity = get_object_or_404(Identity, pk=id)
+    
+    # Get all lists owned by the current user that contain this identity
+    lists = List.objects.filter(
+        owner=request.identity,
+        members__identity=identity,
+    ).order_by("-created")
+    
+    return [
+        schemas.List(
+            id=str(lst.id),
+            title=lst.title,
+            replies_policy=lst.replies_policy,
+        )
+        for lst in lists
+    ]
