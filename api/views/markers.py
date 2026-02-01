@@ -41,8 +41,8 @@ def markers(
 @api_view.post
 def update_markers(
     request: HttpRequest,
-    home: QueryOrBody[dict | None] = None,
-    notifications: QueryOrBody[dict | None] = None,
+    home: QueryOrBody[dict[str, str] | None] = None,
+    notifications: QueryOrBody[dict[str, str] | None] = None,
 ) -> dict:
     """
     Save timeline positions (markers).
