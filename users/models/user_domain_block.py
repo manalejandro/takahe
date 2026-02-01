@@ -3,7 +3,8 @@ User-level domain blocking.
 """
 from django.db import models
 
-from users.models import Domain, Identity
+from users.models.domain import Domain
+from users.models.identity import Identity
 
 
 class UserDomainBlock(models.Model):

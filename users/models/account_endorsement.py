@@ -3,7 +3,7 @@ Account endorsements (pinning accounts on profile).
 """
 from django.db import models
 
-from users.models import Identity
+from users.models.identity import Identity
 
 
 class AccountEndorsement(models.Model):

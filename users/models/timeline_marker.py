@@ -3,7 +3,7 @@ Timeline position markers for tracking where users left off reading.
 """
 from django.db import models
 
-from users.models import Identity
+from users.models.identity import Identity
 
 
 class TimelineMarker(models.Model):

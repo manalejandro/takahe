@@ -3,7 +3,7 @@ Private notes on accounts.
 """
 from django.db import models
 
-from users.models import Identity
+from users.models.identity import Identity
 
 
 class AccountNote(models.Model):
