@@ -131,7 +131,23 @@ for i in Identity.objects.filter(local=True, auto_delete_posts__gt=0):
 
 ## 🔄 Setup Automated Execution
 
-### Option A: Cron Job
+### Option A: Using Takahe's Built-in Scheduled Tasks (Recommended)
+
+Takahe has a scheduled task system that integrates with the Stator process:
+
+```bash
+# Create the scheduled task (runs daily at 3 AM)
+python manage.py setup_scheduled_tasks
+```
+
+**Verify it was created:**
+```bash
+python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; task = ScheduledTask.objects.filter(name='auto_delete_posts').first(); print(f'Task: {task.name}, Enabled: {task.enabled}, Next run: {task.next_run}')"
+```
+
+**Important:** Make sure your Stator process is running. Stator handles all scheduled tasks automatically.
+
+### Option B: Cron Job
 ```bash
 # Edit crontab
 crontab -e
@@ -140,7 +156,7 @@ crontab -e
 0 3 * * * cd /home/ale/projects/activitypub/takahe && /home/ale/projects/activitypub/takahe/.venv/bin/python manage.py auto_delete_posts
 ```
 
-### Option B: Systemd Timer (Recommended)
+### Option B: Systemd Timer
 
 1. Create service file:
 ```bash

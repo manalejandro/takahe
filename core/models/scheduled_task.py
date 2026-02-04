@@ -214,6 +214,8 @@ class ScheduledTask(StatorModel):
                 "schedule_type": cls.ScheduleType.DAILY,
                 "run_time": datetime.time(3, 0),
                 "enabled": True,
+                "state_ready": True,
+                "state": "pending",
             },
         )
 
@@ -226,5 +228,7 @@ class ScheduledTask(StatorModel):
                 "schedule_type": cls.ScheduleType.DAILY,
                 "run_time": datetime.time(4, 0),
                 "enabled": False,  # Disabled by default
+                "state_ready": True,
+                "state": "pending",
             },
         )

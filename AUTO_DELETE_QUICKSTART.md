@@ -77,7 +77,51 @@ python manage.py auto_delete_posts
 
 ### Automated Execution
 
-#### Option 1: Cron Job
+#### Option 1: Using Takahe's Built-in Scheduled Tasks (Recommended)
+
+Takahe has a built-in scheduled task system that uses the Stator process.
+
+1. **Setup the scheduled task**:
+```bash
+python manage.py setup_scheduled_tasks
+```
+
+This creates a daily task that runs at 3:00 AM.
+
+2. **Verify it was created**:
+```bash
+python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; print(ScheduledTask.objects.filter(name='auto_delete_posts').first())"
+```
+
+3. **Ensure Stator is running** (it handles the scheduled tasks):
+   - Stator should be running as part of your Takahe deployment
+   - If using Docker, it's typically a separate container
+   - Check your deployment documentation
+
+4. **To manually enable/disable or adjust the schedule**:
+```bash
+python manage.py shell
+```
+```python
+from core.models.scheduled_task import ScheduledTask
+import datetime
+
+task = ScheduledTask.objects.get(name='auto_delete_posts')
+
+# Change run time (e.g., 2:30 AM)
+task.run_time = datetime.time(2, 30)
+task.save()
+
+# Disable the task
+task.enabled = False
+task.save()
+
+# Re-enable
+task.enabled = True
+task.save()
+```
+
+#### Option 2: Cron Job
 ```bash
 crontab -e
 ```
@@ -88,7 +132,7 @@ Add:
 0 3 * * * cd /path/to/takahe && /path/to/venv/bin/python manage.py auto_delete_posts
 ```
 
-#### Option 2: Systemd Timer (Recommended)
+#### Option 2: Systemd Timer
 
 Create `/etc/systemd/system/takahe-autodelete.service`:
 ```ini
