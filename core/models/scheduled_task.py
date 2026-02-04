@@ -195,6 +195,9 @@ class ScheduledTask(StatorModel):
             self.next_run = now + datetime.timedelta(seconds=self.interval_seconds)
 
     def save(self, *args, **kwargs):
+        # Initialize state_ready if not set (required by StatorModel)
+        if self.state_ready is None:
+            self.state_ready = True
         # Calculate next run if it's not set
         if not self.next_run:
             self.calculate_next_run()
