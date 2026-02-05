@@ -1,7 +1,9 @@
+import asyncio
 import json
 import time
-from typing import Generator
+from typing import AsyncGenerator
 
+from asgiref.sync import sync_to_async
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -12,12 +14,12 @@ from api import schemas
 from core.models import Config
 
 
-def event_stream_generator(
+async def event_stream_generator(
     request: HttpRequest,
     stream_type: str,
     hashtag: str | None = None,
     list_id: str | None = None,
-) -> Generator[str, None, None]:
+) -> AsyncGenerator[str, None]:
     """
     Generator that yields Server-Sent Events for the streaming API.
     """
@@ -53,7 +55,7 @@ def event_stream_generator(
                 queryset = TimelineService(identity).hashtag(hashtag.lower()).filter(local=True)
             elif stream_type == "list" and list_id:
                 # List timeline not fully implemented yet
-                time.sleep(check_interval)
+                await asyncio.sleep(check_interval)
                 continue
 
             if queryset is None:
@@ -76,7 +78,7 @@ def event_stream_generator(
                 if last_event_id:
                     queryset = queryset.filter(id__gt=int(last_event_id))
                 
-                events = list(queryset.order_by("id")[:20])
+                events = await sync_to_async(list)(queryset.order_by("id")[:20])
                 
                 for event in events:
                     last_event_id = str(event.id)
@@ -111,7 +113,7 @@ def event_stream_generator(
                 if last_event_id:
                     queryset = queryset.filter(id__gt=int(last_event_id))
                 
-                posts = list(queryset.order_by("id")[:20])
+                posts = await sync_to_async(list)(queryset.order_by("id")[:20])
                 
                 for post in posts:
                     last_event_id = str(post.id)
@@ -128,7 +130,7 @@ def event_stream_generator(
                 last_ping = current_time
             
             # Wait before checking for new events
-            time.sleep(check_interval)
+            await asyncio.sleep(check_interval)
 
     except GeneratorExit:
         # Client disconnected
