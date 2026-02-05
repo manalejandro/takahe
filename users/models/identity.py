@@ -954,29 +954,31 @@ class Identity(StatorModel):
             return False
         if "type" not in document:
             return False
-        self.name = document.get("name")
-        self.profile_uri = document.get("url")
-        self.inbox_uri = document.get("inbox")
-        self.outbox_uri = document.get("outbox")
-        self.followers_uri = document.get("followers")
-        self.following_uri = document.get("following")
-        self.featured_collection_uri = document.get("featured")
+        self.name = document.get("name")[:500] if document.get("name") else None
+        self.profile_uri = document.get("url")[:500] if document.get("url") else None
+        self.inbox_uri = document.get("inbox")[:500] if document.get("inbox") else None
+        self.outbox_uri = document.get("outbox")[:500] if document.get("outbox") else None
+        self.followers_uri = document.get("followers")[:500] if document.get("followers") else None
+        self.following_uri = document.get("following")[:500] if document.get("following") else None
+        self.featured_collection_uri = document.get("featured")[:500] if document.get("featured") else None
         self.actor_type = document["type"].lower()
-        self.shared_inbox_uri = document.get("endpoints", {}).get("sharedInbox")
+        self.shared_inbox_uri = document.get("endpoints", {}).get("sharedInbox")[:500] if document.get("endpoints", {}).get("sharedInbox") else None
         self.summary = document.get("summary")
         self.username = document.get("preferredUsername")
         if self.username and "@value" in self.username:
             self.username = self.username["@value"]
         if self.username:
-            self.username = self.username
+            self.username = self.username[:500]
         self.manually_approves_followers = document.get("manuallyApprovesFollowers")
         self.public_key = document.get("publicKey", {}).get("publicKeyPem")
         self.public_key_id = document.get("publicKey", {}).get("id")
         # Sometimes the public key PEM is in a language construct?
         if isinstance(self.public_key, dict):
             self.public_key = self.public_key["@value"]
-        self.icon_uri = get_first_image_url(document.get("icon", None))
-        self.image_uri = get_first_image_url(document.get("image", None))
+        icon_uri = get_first_image_url(document.get("icon", None))
+        self.icon_uri = icon_uri[:500] if icon_uri else None
+        image_uri = get_first_image_url(document.get("image", None))
+        self.image_uri = image_uri[:500] if image_uri else None
         self.discoverable = document.get("toot:discoverable", True)
         # Profile links/metadata
         self.metadata = []
@@ -1002,7 +1004,7 @@ class Identity(StatorModel):
                 )
                 if webfinger_handle:
                     webfinger_username, webfinger_domain = webfinger_handle.split("@")
-                    self.username = webfinger_username
+                    self.username = webfinger_username[:500]
                     self.domain = Domain.get_remote_domain(webfinger_domain)
             except TryAgainLater:
                 # continue with original domain when webfinger times out
