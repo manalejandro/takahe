@@ -855,9 +855,9 @@ class Post(StatorModel):
         try:
             # Ensure data has the primary fields of all Posts
             if (
-                not isinstance(data["id"], str)
-                or not isinstance(data["attributedTo"], str)
-                or not isinstance(data["type"], str)
+                not isinstance(data.get("id"), str)
+                or not isinstance(data.get("attributedTo"), str)
+                or not isinstance(data.get("type"), str)
             ):
                 raise TypeError()
             # Ensure the domain of the object's actor and ID match to prevent injection
