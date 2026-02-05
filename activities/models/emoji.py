@@ -272,6 +272,10 @@ class Emoji(StatorModel):
     @classmethod
     def by_ap_tag(cls, domain: Domain, data: dict, create: bool = False):
         """ """
+        # Check if id is present
+        if "id" not in data:
+            raise ValueError("Emoji data missing required 'id' field")
+        
         try:
             return cls.objects.get(object_uri=data["id"])
         except cls.DoesNotExist:
