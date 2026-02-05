@@ -142,7 +142,7 @@ async def event_stream_generator(
 
 @csrf_exempt
 @require_http_methods(["GET"])
-def streaming(request: HttpRequest) -> StreamingHttpResponse | JsonResponse:
+async def streaming(request: HttpRequest) -> StreamingHttpResponse | JsonResponse:
     """
     WebSocket-alternative streaming API endpoint using Server-Sent Events.
     
@@ -187,12 +187,15 @@ def streaming(request: HttpRequest) -> StreamingHttpResponse | JsonResponse:
             return JsonResponse({"error": "Authentication required for user stream"}, status=401)
         
         # Check scope
-        if token and not token.has_scope("read:statuses"):
-            return JsonResponse({"error": "Insufficient scope"}, status=403)
+        if token:
+            has_scope = await sync_to_async(token.has_scope)("read:statuses")
+            if not has_scope:
+                return JsonResponse({"error": "Insufficient scope"}, status=403)
     
     # Public streams might be disabled
     if stream.startswith("public"):
-        if not identity and not Config.system.public_timeline:
+        public_timeline_enabled = await sync_to_async(lambda: Config.system.public_timeline)()
+        if not identity and not public_timeline_enabled:
             return JsonResponse({"error": "Public timeline is disabled"}, status=422)
     
     # Create streaming response with SSE headers
