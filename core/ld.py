@@ -4,6 +4,7 @@ import os
 import urllib.parse as urllib_parse
 
 from dateutil import parser
+from django.utils import timezone
 from pyld import jsonld
 
 from core.exceptions import ActivityPubFormatError
@@ -722,7 +723,11 @@ def format_ld_date(value: datetime.datetime) -> str:
 def parse_ld_date(value: str | None) -> datetime.datetime | None:
     if value is None:
         return None
-    return parser.isoparse(value).replace(microsecond=0)
+    dt = parser.isoparse(value).replace(microsecond=0)
+    # Ensure timezone-aware datetime
+    if dt.tzinfo is None:
+        dt = timezone.make_aware(dt, timezone.utc)
+    return dt
 
 
 def get_first_image_url(data) -> str | None:
