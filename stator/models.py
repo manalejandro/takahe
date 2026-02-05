@@ -111,6 +111,33 @@ class StatorModel(models.Model):
     def state_age(self) -> float:
         return (timezone.now() - self.state_changed).total_seconds()
 
+    def _get_domain_info(self) -> str:
+        """
+        Extrae información del dominio/instancia para logging de errores.
+        """
+        try:
+            # Intenta acceder directo al dominio (Identity, Domain)
+            if hasattr(self, 'domain') and self.domain:
+                if hasattr(self.domain, 'domain'):
+                    return f"{self._meta.label_lower}#{self.pk}@{self.domain.domain}"
+                return f"{self._meta.label_lower}#{self.pk}@{self.domain}"
+            # Intenta acceder via author (Post, PostInteraction, etc)
+            if hasattr(self, 'author') and self.author:
+                if hasattr(self.author, 'domain') and self.author.domain:
+                    if hasattr(self.author.domain, 'domain'):
+                        return f"{self._meta.label_lower}#{self.pk}@{self.author.domain.domain}"
+                    return f"{self._meta.label_lower}#{self.pk}@{self.author.domain}"
+            # Intenta acceder via identity
+            if hasattr(self, 'identity') and self.identity:
+                if hasattr(self.identity, 'domain') and self.identity.domain:
+                    if hasattr(self.identity.domain, 'domain'):
+                        return f"{self._meta.label_lower}#{self.pk}@{self.identity.domain.domain}"
+                    return f"{self._meta.label_lower}#{self.pk}@{self.identity.domain}"
+            # Si no hay dominio específico
+            return f"{self._meta.label_lower}#{self.pk}@local"
+        except Exception:
+            return f"{self._meta.label_lower}#{self.pk}@unknown"
+
     @classmethod
     def transition_get_with_lock(
         cls, number: int, lock_expiry: datetime.datetime
@@ -205,7 +232,9 @@ class StatorModel(models.Model):
         except TryAgainLater:
             pass
         except BaseException as e:
-            logger.exception(e)
+            # Extraer información del dominio para el logging
+            domain_info = self._get_domain_info()
+            logger.exception(f"{e} | from: {domain_info}")
         else:
             if next_state:
                 # Ensure it's a State object

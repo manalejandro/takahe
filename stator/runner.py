@@ -17,6 +17,35 @@ from stator.models import StatorModel, Stats
 logger = logging.getLogger(__name__)
 
 
+def get_instance_domain(instance: StatorModel) -> str:
+    """
+    Extrae el dominio de una instancia de StatorModel.
+    Intenta diferentes formas comunes de acceder al dominio.
+    """
+    try:
+        # Intenta acceder directo al dominio (Identity, Domain)
+        if hasattr(instance, 'domain') and instance.domain:
+            if hasattr(instance.domain, 'domain'):
+                return instance.domain.domain
+            return str(instance.domain)
+        # Intenta acceder via author (Post, PostInteraction, etc)
+        if hasattr(instance, 'author') and instance.author:
+            if hasattr(instance.author, 'domain') and instance.author.domain:
+                if hasattr(instance.author.domain, 'domain'):
+                    return instance.author.domain.domain
+                return str(instance.author.domain)
+        # Intenta acceder via identity
+        if hasattr(instance, 'identity') and instance.identity:
+            if hasattr(instance.identity, 'domain') and instance.identity.domain:
+                if hasattr(instance.identity.domain, 'domain'):
+                    return instance.identity.domain.domain
+                return str(instance.identity.domain)
+        # Si no hay dominio, retorna el tipo de modelo
+        return f"local/{instance._meta.label_lower}"
+    except Exception:
+        return "unknown"
+
+
 class LoopingTimer:
     """
     Triggers check() to be true once every `interval`.
@@ -242,7 +271,11 @@ class StatorRunner:
                 try:
                     task.result()
                 except BaseException as e:
-                    logger.exception(e)
+                    # Extraer información del modelo y tarea
+                    model_label = key[0] if key else "unknown"
+                    instance_pk = key[1] if len(key) > 1 else "unknown"
+                    domain_info = f"model: {model_label}, pk: {instance_pk}"
+                    logger.exception(f"{e} | from: {domain_info}")
 
     def run_single_cycle(self):
         """
@@ -259,6 +292,7 @@ def task_transition(instance: StatorModel, in_thread: bool = True):
     """
     task_name = f"stator.task_transition:{instance._meta.label_lower}#{{id}} from {instance.state}"
     started = time.monotonic()
+    domain_str = get_instance_domain(instance)
     with sentry.start_transaction(op="task", name=task_name):
         sentry.set_context(
             "instance",
@@ -267,17 +301,18 @@ def task_transition(instance: StatorModel, in_thread: bool = True):
                 "pk": instance.pk,
                 "state": instance.state,
                 "state_age": instance.state_age,
+                "domain": domain_str,
             },
         )
         result = instance.transition_attempt()
         duration = time.monotonic() - started
         if result:
             logger.info(
-                f"{instance._meta.label_lower}: {instance.pk}: {instance.state} -> {result} ({duration:.2f}s)"
+                f"{instance._meta.label_lower}: {instance.pk}: {instance.state} -> {result} ({duration:.2f}s) | from: {domain_str}"
             )
         else:
             logger.info(
-                f"{instance._meta.label_lower}: {instance.pk}: {instance.state} unchanged  ({duration:.2f}s)"
+                f"{instance._meta.label_lower}: {instance.pk}: {instance.state} unchanged  ({duration:.2f}s) | from: {domain_str}"
             )
     if in_thread:
         close_old_connections()
