@@ -116,23 +116,54 @@ class StatorModel(models.Model):
         Extrae información del dominio/instancia para logging de errores.
         """
         try:
-            # Intenta acceder directo al dominio (Identity, Domain)
-            if hasattr(self, 'domain') and self.domain:
+            # Para InboxMessage, extraer el actor del mensaje
+            if self._meta.label_lower == 'users.inboxmessage' and hasattr(self, 'message'):
+                actor = self.message.get('actor')
+                if actor:
+                    from urllib.parse import urlparse
+                    domain = urlparse(actor).hostname
+                    return f"{self._meta.label_lower}#{self.pk} actor:{actor} @{domain}"
+                return f"{self._meta.label_lower}#{self.pk}@internal"
+            
+            # Para Identity con actor_uri
+            if hasattr(self, 'actor_uri') and self.actor_uri:
+                if hasattr(self, 'domain') and self.domain:
+                    domain = self.domain.domain if hasattr(self.domain, 'domain') else str(self.domain)
+                    return f"{self._meta.label_lower}#{self.pk} actor:{self.actor_uri} @{domain}"
+                from urllib.parse import urlparse
+                domain = urlparse(self.actor_uri).hostname
+                return f"{self._meta.label_lower}#{self.pk} actor:{self.actor_uri} @{domain}"
+            
+            # Intenta acceder directo al dominio (Domain)
+            if hasattr(self, 'domain') and self.domain and not hasattr(self, 'author'):
                 if hasattr(self.domain, 'domain'):
                     return f"{self._meta.label_lower}#{self.pk}@{self.domain.domain}"
                 return f"{self._meta.label_lower}#{self.pk}@{self.domain}"
+            
             # Intenta acceder via author (Post, PostInteraction, etc)
             if hasattr(self, 'author') and self.author:
+                author_domain = None
                 if hasattr(self.author, 'domain') and self.author.domain:
-                    if hasattr(self.author.domain, 'domain'):
-                        return f"{self._meta.label_lower}#{self.pk}@{self.author.domain.domain}"
-                    return f"{self._meta.label_lower}#{self.pk}@{self.author.domain}"
+                    author_domain = self.author.domain.domain if hasattr(self.author.domain, 'domain') else str(self.author.domain)
+                
+                author_uri = getattr(self.author, 'actor_uri', None)
+                if author_uri and author_domain:
+                    return f"{self._meta.label_lower}#{self.pk} author:{author_uri} @{author_domain}"
+                elif author_domain:
+                    return f"{self._meta.label_lower}#{self.pk}@{author_domain}"
+            
             # Intenta acceder via identity
             if hasattr(self, 'identity') and self.identity:
+                identity_domain = None
                 if hasattr(self.identity, 'domain') and self.identity.domain:
-                    if hasattr(self.identity.domain, 'domain'):
-                        return f"{self._meta.label_lower}#{self.pk}@{self.identity.domain.domain}"
-                    return f"{self._meta.label_lower}#{self.pk}@{self.identity.domain}"
+                    identity_domain = self.identity.domain.domain if hasattr(self.identity.domain, 'domain') else str(self.identity.domain)
+                
+                identity_uri = getattr(self.identity, 'actor_uri', None)
+                if identity_uri and identity_domain:
+                    return f"{self._meta.label_lower}#{self.pk} identity:{identity_uri} @{identity_domain}"
+                elif identity_domain:
+                    return f"{self._meta.label_lower}#{self.pk}@{identity_domain}"
+            
             # Si no hay dominio específico
             return f"{self._meta.label_lower}#{self.pk}@local"
         except Exception:

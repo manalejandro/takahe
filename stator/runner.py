@@ -23,23 +23,54 @@ def get_instance_domain(instance: StatorModel) -> str:
     Intenta diferentes formas comunes de acceder al dominio.
     """
     try:
-        # Intenta acceder directo al dominio (Identity, Domain)
-        if hasattr(instance, 'domain') and instance.domain:
+        from urllib.parse import urlparse
+        
+        # Para InboxMessage, extraer el actor del mensaje
+        if instance._meta.label_lower == 'users.inboxmessage' and hasattr(instance, 'message'):
+            actor = instance.message.get('actor')
+            if actor:
+                domain = urlparse(actor).hostname
+                return f"actor:{actor} @{domain}"
+            return "internal"
+        
+        # Para Identity con actor_uri
+        if hasattr(instance, 'actor_uri') and instance.actor_uri:
+            if hasattr(instance, 'domain') and instance.domain:
+                domain = instance.domain.domain if hasattr(instance.domain, 'domain') else str(instance.domain)
+                return f"actor:{instance.actor_uri} @{domain}"
+            domain = urlparse(instance.actor_uri).hostname
+            return f"actor:{instance.actor_uri} @{domain}"
+        
+        # Intenta acceder directo al dominio (Domain)
+        if hasattr(instance, 'domain') and instance.domain and not hasattr(instance, 'author'):
             if hasattr(instance.domain, 'domain'):
                 return instance.domain.domain
             return str(instance.domain)
+        
         # Intenta acceder via author (Post, PostInteraction, etc)
         if hasattr(instance, 'author') and instance.author:
+            author_domain = None
             if hasattr(instance.author, 'domain') and instance.author.domain:
-                if hasattr(instance.author.domain, 'domain'):
-                    return instance.author.domain.domain
-                return str(instance.author.domain)
+                author_domain = instance.author.domain.domain if hasattr(instance.author.domain, 'domain') else str(instance.author.domain)
+            
+            author_uri = getattr(instance.author, 'actor_uri', None)
+            if author_uri and author_domain:
+                return f"author:{author_uri} @{author_domain}"
+            elif author_domain:
+                return author_domain
+        
         # Intenta acceder via identity
         if hasattr(instance, 'identity') and instance.identity:
+            identity_domain = None
             if hasattr(instance.identity, 'domain') and instance.identity.domain:
-                if hasattr(instance.identity.domain, 'domain'):
-                    return instance.identity.domain.domain
-                return str(instance.identity.domain)
+                identity_domain = instance.identity.domain.domain if hasattr(instance.identity.domain, 'domain') else str(instance.identity.domain)
+            
+            identity_uri = getattr(instance.identity, 'actor_uri', None)
+            if identity_uri and identity_domain:
+                return f"identity:{identity_uri} @{identity_domain}"
+            elif identity_domain:
+                return identity_domain
+        
         # Si no hay dominio, retorna el tipo de modelo
         return f"local/{instance._meta.label_lower}"
     except Exception:
