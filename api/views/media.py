@@ -1,3 +1,5 @@
+import mimetypes
+
 from django.core.files import File
 from django.shortcuts import get_object_or_404
 from hatchway import ApiError, QueryOrBody, api_view
@@ -17,33 +19,58 @@ def upload_media(
     description: QueryOrBody[str] = "",
     focus: QueryOrBody[str] = "0,0",
 ) -> schemas.MediaAttachment:
-    main_file = resize_image(
-        file,
-        size=(2000, 2000),
-        cover=False,
-    )
-    thumbnail_file = resize_image(
-        file,
-        size=(400, 225),
-        cover=True,
-    )
-    attachment = PostAttachment.objects.create(
-        blurhash=blurhash_image(thumbnail_file),
-        mimetype="image/webp",
-        width=main_file.image.width,
-        height=main_file.image.height,
-        name=description or None,
-        state=PostAttachmentStates.fetched,
-        author=request.identity,
-    )
-    attachment.file.save(
-        main_file.name,
-        main_file,
-    )
-    attachment.thumbnail.save(
-        thumbnail_file.name,
-        thumbnail_file,
-    )
+    # Determine the mimetype
+    mimetype = file.content_type or mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+    
+    # Check if it's an image, audio, or video
+    is_image = mimetype.startswith("image/")
+    is_audio = mimetype.startswith("audio/")
+    is_video = mimetype.startswith("video/")
+    
+    if is_image:
+        # Handle images as before
+        main_file = resize_image(
+            file,
+            size=(2000, 2000),
+            cover=False,
+        )
+        thumbnail_file = resize_image(
+            file,
+            size=(400, 225),
+            cover=True,
+        )
+        attachment = PostAttachment.objects.create(
+            blurhash=blurhash_image(thumbnail_file),
+            mimetype="image/webp",
+            width=main_file.image.width,
+            height=main_file.image.height,
+            name=description or None,
+            state=PostAttachmentStates.fetched,
+            author=request.identity,
+        )
+        attachment.file.save(
+            main_file.name,
+            main_file,
+        )
+        attachment.thumbnail.save(
+            thumbnail_file.name,
+            thumbnail_file,
+        )
+    elif is_audio or is_video:
+        # Handle audio and video files
+        attachment = PostAttachment.objects.create(
+            mimetype=mimetype,
+            name=description or None,
+            state=PostAttachmentStates.fetched,
+            author=request.identity,
+        )
+        attachment.file.save(
+            file.name,
+            file,
+        )
+    else:
+        raise ApiError(422, "Unsupported media type")
+    
     attachment.save()
     return schemas.MediaAttachment.from_post_attachment(attachment)
 

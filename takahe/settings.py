@@ -364,6 +364,11 @@ MEDIA_URL = SETUP.MEDIA_URL
 MEDIA_ROOT = SETUP.MEDIA_ROOT
 MAIN_DOMAIN = SETUP.MAIN_DOMAIN
 
+# File upload settings
+# Allow larger file uploads (matching nginx client_max_body_size of 100M)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+
 if not DEBUG and MAIN_DOMAIN == "example.com":
     raise ValueError("You must set a TAKAHE_MAIN_DOMAIN!")
 
