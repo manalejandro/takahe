@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 class PostStates(StateGraph):
+    scheduled = State(try_interval=60)  # Check every minute if it's time to publish
     new = State(try_interval=300)
     fanned_out = State(externally_progressed=True)
     deleted = State(try_interval=300)
@@ -58,6 +59,7 @@ class PostStates(StateGraph):
     edited = State(try_interval=300)
     edited_fanned_out = State(externally_progressed=True)
 
+    scheduled.transitions_to(new)
     new.transitions_to(fanned_out)
     fanned_out.transitions_to(deleted_fanned_out)
     fanned_out.transitions_to(deleted)
@@ -67,6 +69,20 @@ class PostStates(StateGraph):
     edited.transitions_to(edited_fanned_out)
     edited_fanned_out.transitions_to(edited)
     edited_fanned_out.transitions_to(deleted)
+
+    @classmethod
+    def handle_scheduled(cls, instance: "Post"):
+        """
+        Checks if a scheduled post should be published now.
+        """
+        if instance.scheduled_at and timezone.now() >= instance.scheduled_at:
+            # It's time to publish
+            instance.published = instance.scheduled_at
+            instance.scheduled_at = None
+            instance.save()
+            return cls.new
+        # Not yet time
+        return None
 
     @classmethod
     def targets_fan_out(cls, post: "Post", type_: str) -> None:
@@ -339,6 +355,9 @@ class Post(StatorModel):
     # When the post was originally created (as opposed to when we received it)
     published = models.DateTimeField(default=timezone.now)
 
+    # If the post is scheduled for future publication
+    scheduled_at = models.DateTimeField(blank=True, null=True, db_index=True)
+
     # If the post has been edited after initial publication
     edited = models.DateTimeField(blank=True, null=True)
 
@@ -499,6 +518,7 @@ class Post(StatorModel):
         reply_to: Optional["Post"] = None,
         attachments: list | None = None,
         question: dict | None = None,
+        scheduled_at: datetime.datetime | None = None,
     ) -> "Post":
         with transaction.atomic():
             # Find mentions in this post
@@ -517,6 +537,8 @@ class Post(StatorModel):
                 sorted([tag[: Hashtag.MAXIMUM_LENGTH] for tag in parser.hashtags])
                 or None
             )
+            # Determine initial state
+            initial_state = PostStates.scheduled if scheduled_at else PostStates.new
             # Make the Post object
             post = cls.objects.create(
                 author=author,
@@ -527,6 +549,8 @@ class Post(StatorModel):
                 visibility=visibility,
                 hashtags=hashtags,
                 in_reply_to=reply_to.object_uri if reply_to else None,
+                scheduled_at=scheduled_at,
+                state=initial_state,
             )
             post.object_uri = post.urls.object_uri
             post.url = post.absolute_object_uri()
@@ -538,8 +562,9 @@ class Post(StatorModel):
                 post.type = question["type"]
                 post.type_data = PostTypeData(__root__=question).__root__
             post.save()
-            # Recalculate parent stats for replies
-            if reply_to:
+            # For scheduled posts, don't recalculate parent stats yet
+            # Recalculate parent stats for replies (only for non-scheduled posts)
+            if reply_to and not scheduled_at:
                 reply_to.calculate_stats()
         return post
 

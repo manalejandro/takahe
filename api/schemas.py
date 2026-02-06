@@ -263,6 +263,41 @@ class StatusSource(Schema):
         )
 
 
+class ScheduledStatus(Schema):
+    id: str
+    scheduled_at: str
+    params: dict
+    media_attachments: list[MediaAttachment]
+
+    @classmethod
+    def from_post(cls, post: activities_models.Post) -> "ScheduledStatus":
+        from core.ld import format_ld_date
+        
+        visibility_map = {
+            post.Visibilities.public: "public",
+            post.Visibilities.unlisted: "unlisted",
+            post.Visibilities.followers: "private",
+            post.Visibilities.mentioned: "direct",
+            post.Visibilities.local_only: "public",
+        }
+        
+        return cls(
+            id=str(post.id),
+            scheduled_at=format_ld_date(post.scheduled_at) if post.scheduled_at else "",
+            params={
+                "text": FediverseHtmlParser(post.content).plain_text if post.content else "",
+                "visibility": visibility_map.get(post.visibility, "public"),
+                "sensitive": post.sensitive,
+                "spoiler_text": post.summary or "",
+                "in_reply_to_id": getattr(post.in_reply_to_post(), "id", None) if post.in_reply_to else None,
+            },
+            media_attachments=[
+                MediaAttachment.from_post_attachment(attachment)
+                for attachment in post.attachments.all()
+            ],
+        )
+
+
 class Conversation(Schema):
     id: str
     unread: bool
