@@ -16,7 +16,7 @@ class ScheduledTaskStates(StateGraph):
     State graph for scheduled tasks that need to run periodically.
     """
 
-    pending = State(try_interval=60 * 60, force_initial=True)  # Check every hour
+    pending = State(try_interval=60 * 5, force_initial=True)  # Check every 5 minutes
     running = State(externally_progressed=True)
     completed = State(externally_progressed=True)
     failed = State(externally_progressed=True)
@@ -36,11 +36,17 @@ class ScheduledTaskStates(StateGraph):
         """
         Check if the task should run based on its schedule.
         """
+        # Skip if task is disabled
+        if not instance.enabled:
+            return None
+            
         now = timezone.now()
 
         # Check if it's time to run
         if instance.next_run and instance.next_run <= now:
             return cls.running
+        
+        return None
 
     @classmethod
     def handle_running(cls, instance: "ScheduledTask"):
