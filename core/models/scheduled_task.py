@@ -17,19 +17,15 @@ class ScheduledTaskStates(StateGraph):
     """
 
     pending = State(try_interval=60 * 5, force_initial=True)  # Check every 5 minutes
-    running = State(externally_progressed=True)
-    completed = State(externally_progressed=True)
-    failed = State(externally_progressed=True)
+    running = State(try_interval=60)  # Execute the task
+    completed = State(try_interval=1)  # Immediately transition back to pending
+    failed = State(try_interval=60)  # Retry after a minute
 
     pending.transitions_to(running)
     running.transitions_to(completed)
     running.transitions_to(failed)
     completed.transitions_to(pending)
     failed.transitions_to(pending)
-
-    # Reset to pending after completion
-    completed.times_out_to(pending, seconds=1)
-    failed.times_out_to(pending, seconds=60 * 10)  # Retry failed tasks after 10 minutes
 
     @classmethod
     def handle_pending(cls, instance: "ScheduledTask"):
@@ -80,6 +76,20 @@ class ScheduledTaskStates(StateGraph):
             instance.last_error = str(e)
             instance.save()
             return cls.failed
+
+    @classmethod
+    def handle_completed(cls, instance: "ScheduledTask"):
+        """
+        Reset to pending after successful completion.
+        """
+        return cls.pending
+
+    @classmethod
+    def handle_failed(cls, instance: "ScheduledTask"):
+        """
+        Reset to pending after failure.
+        """
+        return cls.pending
 
 
 class ScheduledTask(StatorModel):

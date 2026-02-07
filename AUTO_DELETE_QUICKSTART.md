@@ -11,6 +11,56 @@
    python manage.py auto_delete_posts --dry-run
    ```
 
+## ⚠️ IMPORTANT: Start the Stator Worker Process
+
+**The Stator worker process MUST be running for scheduled tasks to execute automatically.**
+
+The Stator process handles all background tasks including:
+- Scheduled tasks (auto-delete, pruning)
+- Post state transitions
+- Federation activities
+- All asynchronous processing
+
+### Quick Start (Development)
+
+```bash
+./start_stator.sh
+```
+
+This starts the Stator worker in the foreground. Press Ctrl+C to stop.
+
+### Alternative: Manual Start
+
+```bash
+python manage.py runstator
+```
+
+### Production Deployment
+
+In production, Stator should run as a separate service/container:
+
+**Docker/Heroku:** The Procfile already defines the worker:
+```
+worker: python manage.py runstator
+```
+
+Make sure to run a worker dyno/container.
+
+**Systemd Service:**
+```bash
+sudo systemctl start takahe-worker
+sudo systemctl status takahe-worker
+```
+
+### Verify Stator is Running
+
+```bash
+ps aux | grep runstator
+```
+
+If nothing is returned, Stator is NOT running and scheduled tasks will NOT execute.
+
+
 ## Configuration
 
 ### For a Single User
@@ -77,28 +127,30 @@ python manage.py auto_delete_posts
 
 ### Automated Execution
 
+**PREREQUISITE:** The Stator worker process must be running. See the section above for how to start it.
+
 #### Option 1: Using Takahe's Built-in Scheduled Tasks (Recommended)
 
-Takahe has a built-in scheduled task system that uses the Stator process.
+Takahe has a built-in scheduled task system that uses the Stator process. **This is now the default and recommended method.**
 
-1. **Setup the scheduled task**:
+1. **Verify the scheduled task exists**:
+```bash
+python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; task = ScheduledTask.objects.filter(name='auto_delete_posts').first(); print(f'Task: {task.name if task else \"NOT FOUND\"}'); print(f'Enabled: {task.enabled if task else \"N/A\"}'); print(f'Next run: {task.next_run if task else \"N/A\"}')"
+```
+
+2. **If the task doesn't exist, create it**:
 ```bash
 python manage.py setup_scheduled_tasks
 ```
 
-This creates a daily task that runs at 3:00 AM.
-
-2. **Verify it was created**:
-```bash
-python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; print(ScheduledTask.objects.filter(name='auto_delete_posts').first())"
-```
-
 3. **Ensure Stator is running** (it handles the scheduled tasks):
-   - Stator should be running as part of your Takahe deployment
-   - If using Docker, it's typically a separate container
-   - Check your deployment documentation
+   - Run `./start_stator.sh` in development
+   - In production, ensure the worker process/dyno/container is running
+   - Verify: `ps aux | grep runstator`
 
-4. **To manually enable/disable or adjust the schedule**:
+4. **The task will run automatically** at the scheduled time (default: 3:00 AM daily)
+
+5. **To manually enable/disable or adjust the schedule**:
 ```bash
 python manage.py shell
 ```
@@ -110,6 +162,7 @@ task = ScheduledTask.objects.get(name='auto_delete_posts')
 
 # Change run time (e.g., 2:30 AM)
 task.run_time = datetime.time(2, 30)
+task.calculate_next_run()
 task.save()
 
 # Disable the task
@@ -121,7 +174,7 @@ task.enabled = True
 task.save()
 ```
 
-#### Option 2: Cron Job
+#### Option 2: Cron Job (Alternative)
 ```bash
 crontab -e
 ```
@@ -186,6 +239,36 @@ sudo systemctl status takahe-autodelete.timer
 - Posts are deleted using the standard state machine (proper ActivityPub Delete activities are sent)
 
 ## Troubleshooting
+
+### Posts are not being deleted automatically
+
+**Most common cause:** The Stator worker process is not running.
+
+1. **Check if Stator is running**:
+```bash
+ps aux | grep runstator
+```
+
+If you see no results, Stator is NOT running.
+
+2. **Start Stator**:
+```bash
+# In development:
+./start_stator.sh
+
+# Or directly:
+python manage.py runstator
+```
+
+3. **Verify the scheduled task**:
+```bash
+python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; task = ScheduledTask.objects.get(name='auto_delete_posts'); print(f'Enabled: {task.enabled}'); print(f'State: {task.state}'); print(f'Next run: {task.next_run}'); print(f'Last run: {task.last_run}'); print(f'Run count: {task.run_count}')"
+```
+
+4. **Check for locks** (if the task seems stuck):
+```bash
+python manage.py shell -c "from core.models.scheduled_task import ScheduledTask; task = ScheduledTask.objects.get(name='auto_delete_posts'); task.state_locked_until = None; task.save(); print('Lock cleared')"
+```
 
 ### Check if migration was applied
 ```bash
