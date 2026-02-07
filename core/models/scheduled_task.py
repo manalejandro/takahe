@@ -71,6 +71,22 @@ class ScheduledTaskStates(StateGraph):
             logger.info(f"Scheduled task completed: {instance.name}")
             return cls.completed
 
+        except SystemExit as e:
+            # Management commands may call sys.exit(), handle it gracefully
+            # Exit code 0 or 1 is considered success (pruneposts uses both)
+            # Exit code 2 or higher is considered failure
+            if e.code in (0, 1, None):
+                logger.info(f"Scheduled task {instance.name} completed with exit code {e.code}")
+                instance.last_run = timezone.now()
+                instance.calculate_next_run()
+                instance.run_count += 1
+                instance.save()
+                return cls.completed
+            else:
+                logger.error(f"Scheduled task {instance.name} failed with exit code {e.code}")
+                instance.last_error = f"Command exited with code {e.code}"
+                instance.save()
+                return cls.failed
         except Exception as e:
             logger.error(f"Error running scheduled task {instance.name}: {str(e)}")
             instance.last_error = str(e)
