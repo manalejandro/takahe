@@ -14,6 +14,27 @@ from api import schemas
 from core.models import Config
 
 
+def _serialize_event(event, identity) -> str | None:
+    """
+    Serialize a TimelineEvent to an SSE payload string.
+    Must be called in a synchronous context (use sync_to_async).
+    Returns None if the event should be skipped.
+    """
+    if event.type not in (TimelineEvent.Types.post, TimelineEvent.Types.boost):
+        return None
+    status_data = schemas.Status.from_post(event.subject_post, identity=identity)
+    return status_data.json()
+
+
+def _serialize_post(post, identity) -> str:
+    """
+    Serialize a Post to an SSE payload string.
+    Must be called in a synchronous context (use sync_to_async).
+    """
+    status_data = schemas.Status.from_post(post, identity=identity)
+    return status_data.json()
+
+
 async def event_stream_generator(
     request: HttpRequest,
     stream_type: str,
@@ -84,20 +105,15 @@ async def event_stream_generator(
                     last_event_id = str(event.id)
                     
                     # Handle different event types
-                    if event.type == TimelineEvent.Types.post:
-                        status_data = schemas.Status.from_post(
-                            event.subject_post,
-                            identity=identity,
-                        )
-                        payload = json.dumps(status_data.dict())
-                        yield f"event: update\ndata: {payload}\n\n"
-                    elif event.type == TimelineEvent.Types.boost:
-                        status_data = schemas.Status.from_post(
-                            event.subject_post,
-                            identity=identity,
-                        )
-                        payload = json.dumps(status_data.dict())
-                        yield f"event: update\ndata: {payload}\n\n"
+                    if event.type in (TimelineEvent.Types.post, TimelineEvent.Types.boost):
+                        try:
+                            payload = await sync_to_async(_serialize_event)(
+                                event, identity
+                            )
+                        except Exception:
+                            continue
+                        if payload is not None:
+                            yield f"event: update\ndata: {payload}\n\n"
             else:
                 # For public/hashtag timelines, we get Posts
                 queryset = queryset.select_related(
@@ -117,11 +133,10 @@ async def event_stream_generator(
                 
                 for post in posts:
                     last_event_id = str(post.id)
-                    status_data = schemas.Status.from_post(
-                        post,
-                        identity=identity,
-                    )
-                    payload = json.dumps(status_data.dict())
+                    try:
+                        payload = await sync_to_async(_serialize_post)(post, identity)
+                    except Exception:
+                        continue
                     yield f"event: update\ndata: {payload}\n\n"
 
             # Send periodic ping to keep connection alive
