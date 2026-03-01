@@ -1118,9 +1118,12 @@ class Post(StatorModel):
         """
         with transaction.atomic():
             # Ensure the Create actor is the Post's attributedTo
+            # attributedTo can be a string or a list (e.g. PeerTube sends a list)
             attributed_to = data["object"].get("attributedTo")
-            if attributed_to and data["actor"] != attributed_to:
-                raise ValueError("Create actor does not match its Post object", data)
+            if attributed_to:
+                actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
+                if data["actor"] not in actors:
+                    raise ValueError("Create actor does not match its Post object", data)
             # Create it, stator will fan it out locally
             cls.by_ap(data["object"], create=True, update=True, fetch_author=True)
 
@@ -1130,10 +1133,13 @@ class Post(StatorModel):
         Handles an incoming update request
         """
         with transaction.atomic():
-            # Ensure the Create actor is the Post's attributedTo
+            # Ensure the Update actor is the Post's attributedTo
+            # attributedTo can be a string or a list (e.g. PeerTube sends a list)
             attributed_to = data["object"].get("attributedTo")
-            if attributed_to and data["actor"] != attributed_to:
-                raise ValueError("Create actor does not match its Post object", data)
+            if attributed_to:
+                actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
+                if data["actor"] not in actors:
+                    raise ValueError("Create actor does not match its Post object", data)
             # Find it and update it
             try:
                 cls.by_ap(data["object"], create=False, update=True)
