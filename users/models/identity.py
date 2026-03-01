@@ -954,13 +954,24 @@ class Identity(StatorModel):
             return False
         if "type" not in document:
             return False
+
+        def _str_uri(value, max_length=500):
+            """Extract a string URI from a value that may be a string or an AP object dict."""
+            if not value:
+                return None
+            if isinstance(value, dict):
+                value = value.get("id") or value.get("href") or ""
+            if isinstance(value, str):
+                return value[:max_length] or None
+            return None
+
         self.name = document.get("name")[:500] if document.get("name") else None
-        self.profile_uri = document.get("url")[:500] if document.get("url") else None
-        self.inbox_uri = document.get("inbox")[:500] if document.get("inbox") else None
-        self.outbox_uri = document.get("outbox")[:500] if document.get("outbox") else None
-        self.followers_uri = document.get("followers")[:500] if document.get("followers") else None
-        self.following_uri = document.get("following")[:500] if document.get("following") else None
-        self.featured_collection_uri = document.get("featured")[:500] if document.get("featured") else None
+        self.profile_uri = _str_uri(document.get("url"))
+        self.inbox_uri = _str_uri(document.get("inbox"))
+        self.outbox_uri = _str_uri(document.get("outbox"))
+        self.followers_uri = _str_uri(document.get("followers"))
+        self.following_uri = _str_uri(document.get("following"))
+        self.featured_collection_uri = _str_uri(document.get("featured"))
         self.actor_type = document["type"].lower()
         self.shared_inbox_uri = document.get("endpoints", {}).get("sharedInbox")[:500] if document.get("endpoints", {}).get("sharedInbox") else None
         self.summary = document.get("summary")
