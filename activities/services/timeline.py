@@ -19,29 +19,26 @@ class TimelineService:
     def __init__(self, identity: Identity | None):
         self.identity = identity
 
-    def _blocked_and_muted_author_ids(self) -> list:
+    def _exclude_blocked(self, queryset: models.QuerySet) -> models.QuerySet:
         """
-        Returns a list of Identity PKs whose posts the current identity
-        should not see:
-          - identities that the user has blocked or muted
-          - identities that have blocked the user (full block only, not mute)
-        Returns an empty list when there is no authenticated identity.
+        Excludes posts from blocked/muted authors using lazy subqueries,
+        safe to call from both sync and async contexts.
         """
         if self.identity is None:
-            return []
+            return queryset
         active_states = BlockStates.group_active()
-        # Identities this user blocked/muted
+        # Authors this user blocked or muted
         outbound = Block.objects.filter(
             source=self.identity,
             state__in=active_states,
-        ).values_list("target_id", flat=True)
-        # Identities that have fully blocked this user (mute=False)
+        ).values("target_id")
+        # Authors that have fully blocked this user (not mutes)
         inbound = Block.objects.filter(
             target=self.identity,
             mute=False,
             state__in=active_states,
-        ).values_list("source_id", flat=True)
-        return list(set(list(outbound) + list(inbound)))
+        ).values("source_id")
+        return queryset.exclude(author_id__in=outbound).exclude(author_id__in=inbound)
 
     @classmethod
     def event_queryset(cls):
@@ -79,10 +76,7 @@ class TimelineService:
         )
         if self.identity is not None:
             queryset = queryset.filter(author__domain=self.identity.domain)
-            blocked = self._blocked_and_muted_author_ids()
-            if blocked:
-                queryset = queryset.exclude(author_id__in=blocked)
-        return queryset
+        return self._exclude_blocked(queryset)
 
     def federated(self) -> models.QuerySet[Post]:
         queryset = (
@@ -91,10 +85,7 @@ class TimelineService:
             .filter(author__restriction=Identity.Restriction.none)
             .order_by("-id")
         )
-        blocked = self._blocked_and_muted_author_ids()
-        if blocked:
-            queryset = queryset.exclude(author_id__in=blocked)
-        return queryset
+        return self._exclude_blocked(queryset)
 
     def hashtag(self, hashtag: str | Hashtag) -> models.QuerySet[Post]:
         queryset = (
@@ -104,10 +95,7 @@ class TimelineService:
             .tagged_with(hashtag)
             .order_by("-id")
         )
-        blocked = self._blocked_and_muted_author_ids()
-        if blocked:
-            queryset = queryset.exclude(author_id__in=blocked)
-        return queryset
+        return self._exclude_blocked(queryset)
 
     def notifications(self, types: list[str]) -> models.QuerySet[TimelineEvent]:
         return (
