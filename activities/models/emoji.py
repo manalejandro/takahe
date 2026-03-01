@@ -50,7 +50,17 @@ class EmojiStates(StateGraph):
 
             if file:
                 if mimetype == "application/octet-stream":
-                    mimetype = Image.open(file).get_format_mimetype()
+                    # Try to detect the real mimetype from the file content
+                    try:
+                        mimetype = Image.open(file).get_format_mimetype()
+                    except Exception:
+                        # Try guessing from the URL extension
+                        guessed, _ = mimetypes.guess_type(instance.remote_url)
+                        if guessed:
+                            mimetype = guessed
+                        else:
+                            # Cannot identify file format; skip caching this emoji
+                            return cls.updated
 
                 instance.file = file
                 instance.mimetype = mimetype
