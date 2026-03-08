@@ -10,7 +10,7 @@ import pydantic
 import urlman
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import IntegrityError, models
 
 from core.models import Config
 from stator.models import State, StateField, StateGraph, StatorModel
@@ -146,7 +146,11 @@ class Domain(StatorModel):
 
     @classmethod
     def get_remote_domain(cls, domain: str) -> "Domain":
-        return cls.objects.get_or_create(domain=domain.lower(), local=False)[0]
+        try:
+            return cls.objects.get_or_create(domain=domain.lower(), local=False)[0]
+        except IntegrityError:
+            # Race condition: another process created the domain between the GET and CREATE
+            return cls.objects.get(domain=domain.lower(), local=False)
 
     @classmethod
     def get_domain(cls, domain: str) -> Optional["Domain"]:
