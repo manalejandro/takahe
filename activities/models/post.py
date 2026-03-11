@@ -74,8 +74,14 @@ class PostStates(StateGraph):
     def handle_scheduled(cls, instance: "Post"):
         """
         Checks if a scheduled post should be published now.
+        Remote posts or local posts without a scheduled_at should be
+        immediately advanced to new (they ended up here due to the state
+        default; they are not actually scheduled posts).
         """
-        if instance.scheduled_at and timezone.now() >= instance.scheduled_at:
+        if not instance.scheduled_at:
+            # Not a scheduled post — move it straight to new
+            return cls.new
+        if timezone.now() >= instance.scheduled_at:
             # It's time to publish
             instance.published = instance.scheduled_at
             instance.scheduled_at = None
@@ -926,6 +932,7 @@ class Post(StatorModel):
                             content="",
                             local=False,
                             type=data["type"],
+                            state=PostStates.new,
                         )
                         created = True
                 except IntegrityError:
