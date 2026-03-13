@@ -923,10 +923,19 @@ class Post(StatorModel):
                 # to try to create the same post - so watch for that and
                 # try to avoid failing the entire transaction
                 try:
+                    # Use the published date to generate the ID so that
+                    # remote posts are sorted by publication time, not import time.
+                    _published = parse_ld_date(data.get("published"))
+                    _post_id = (
+                        Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
+                        if _published
+                        else Snowflake.generate_post()
+                    )
                     # wrapped in a transaction to avoid breaking the outer
                     # transaction
                     with transaction.atomic():
                         post = cls.objects.create(
+                            id=_post_id,
                             object_uri=data["id"],
                             author=author,
                             content="",

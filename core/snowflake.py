@@ -59,6 +59,17 @@ class Snowflake:
             raise ValueError("Not a valid Snowflake ID")
         return ((snowflake >> 22) / 1000) + cls.EPOCH
 
+    @classmethod
+    def generate_from_datetime(cls, dt, type_id: int) -> int:
+        """
+        Generates a snowflake ID anchored to a specific datetime.
+        For datetimes before EPOCH, the timestamp component is clamped to 0
+        so those posts sort before any post published after the epoch.
+        """
+        ts_ms: int = max(0, int((dt.timestamp() - cls.EPOCH) * 1000))
+        rand_seq: int = secrets.randbits(19)
+        return (ts_ms << 22) | (rand_seq << 3) | type_id
+
     # Handy pre-baked methods for django model defaults
     @classmethod
     def generate_post(cls) -> int:
