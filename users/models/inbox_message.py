@@ -149,6 +149,10 @@ class InboxMessageStates(StateGraph):
                             IdentityService.handle_internal_sync_pins(
                                 instance.message["object"]
                             )
+                        case "fetchoutbox":
+                            Identity.handle_fetch_outbox_internal(
+                                instance.message["object"]
+                            )
                         case unknown:
                             return cls.errored
                 case unknown:

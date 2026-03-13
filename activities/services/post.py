@@ -98,13 +98,18 @@ class PostService:
             reason = ancestor.object_uri
             ancestor = self.queryset().filter(object_uri=object_uri).first()
             if ancestor is None:
+                # Try to fetch the missing ancestor synchronously so the full
+                # thread is available immediately (not just on next page load).
                 try:
-                    Post.ensure_object_uri(object_uri, reason=reason)
-                except ValueError:
-                    logger.error(
-                        f"Cannot fetch ancestor Post={self.post.pk}, ancestor_uri={object_uri}"
-                    )
-                break
+                    ancestor = Post.by_object_uri(object_uri, fetch=True)
+                except Post.DoesNotExist:
+                    try:
+                        Post.ensure_object_uri(object_uri, reason=reason)
+                    except ValueError:
+                        logger.error(
+                            f"Cannot fetch ancestor Post={self.post.pk}, ancestor_uri={object_uri}"
+                        )
+                    break
             if ancestor.state in [PostStates.deleted, PostStates.deleted_fanned_out]:
                 break
             ancestors.append(ancestor)

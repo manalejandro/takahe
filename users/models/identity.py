@@ -843,6 +843,91 @@ class Identity(StatorModel):
             pass
         return None, None
 
+    def fetch_outbox(self, max_posts: int = 20) -> int:
+        """
+        Fetches recent posts from this identity's outbox and imports them.
+        Returns the number of posts successfully imported.
+        """
+        import json
+
+        from activities.models import Post
+
+        if self.local or not self.outbox_uri:
+            return 0
+
+        try:
+            response = SystemActor().signed_request(
+                method="get",
+                uri=self.outbox_uri,
+            )
+        except (httpx.RequestError, ssl.SSLCertVerificationError):
+            return 0
+
+        if response.status_code >= 400:
+            return 0
+
+        try:
+            data = canonicalise(response.json(), include_security=True)
+        except (ValueError, json.JSONDecodeError):
+            return 0
+
+        # Resolve the first page if this is a top-level collection
+        first = data.get("first")
+        if first:
+            first_uri = first if isinstance(first, str) else first.get("id")
+            if first_uri:
+                try:
+                    response = SystemActor().signed_request(
+                        method="get",
+                        uri=first_uri,
+                    )
+                except (httpx.RequestError, ssl.SSLCertVerificationError):
+                    return 0
+                if response.status_code >= 400:
+                    return 0
+                try:
+                    data = canonicalise(response.json(), include_security=True)
+                except (ValueError, json.JSONDecodeError):
+                    return 0
+
+        items = data.get("orderedItems") or data.get("items") or []
+        if not items:
+            return 0
+
+        count = 0
+        for item in items[:max_posts]:
+            if isinstance(item, dict):
+                post_obj = item
+                if item.get("type") in ["Create", "Update"]:
+                    post_obj = item.get("object") or item
+                post_uri = post_obj.get("id") if isinstance(post_obj, dict) else None
+            elif isinstance(item, str):
+                post_uri = item
+            else:
+                continue
+            if not post_uri or "://" not in post_uri:
+                continue
+            try:
+                Post.by_object_uri(post_uri, fetch=True)
+                count += 1
+            except Exception:
+                continue
+        return count
+
+    @classmethod
+    def handle_fetch_outbox_internal(cls, data):
+        """
+        Handles an internal inbox message to fetch an identity's outbox posts.
+        """
+        identity_pk = data.get("identity")
+        if not identity_pk:
+            return
+        try:
+            identity = cls.objects.get(pk=identity_pk)
+        except cls.DoesNotExist:
+            return
+        identity.fetch_outbox()
+
     @classmethod
     def fetch_pinned_post_uris(cls, uri: str) -> list[str]:
         """
@@ -1065,6 +1150,15 @@ class Identity(StatorModel):
             InboxMessage.create_internal(
                 {
                     "type": "SyncPins",
+                    "identity": self.pk,
+                }
+            )
+
+        # Fetch recent posts from the outbox in a followup task
+        if self.outbox_uri:
+            InboxMessage.create_internal(
+                {
+                    "type": "FetchOutbox",
                     "identity": self.pk,
                 }
             )
