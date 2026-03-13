@@ -1049,6 +1049,11 @@ class Post(StatorModel):
                 # if we don't commit the transaction here, there's a chance
                 # the parent fetch below goes into an infinite loop
                 post.save()
+                # The stub guard in handle_new may have pushed state_next_attempt
+                # into the future.  Reset it so stator fans out the now-populated
+                # post without waiting the full try_interval.
+                if post.state == PostStates.new:
+                    Post.objects.filter(pk=post.pk).update(state_next_attempt=None)
 
             # Potentially schedule a fetch of the reply parent, and recalculate
             # its stats if it's here already.
@@ -1200,11 +1205,33 @@ class Post(StatorModel):
     @classmethod
     def handle_fetch_internal(cls, data):
         """
-        Handles an internal fetch-request inbox message
+        Handles an internal fetch-request inbox message.
+        When force_update=True the post is always re-fetched from the remote
+        server (even if it already exists locally) so that stale/empty content
+        can be refreshed.
         """
         try:
             uri = data["object"]
-            if "://" in uri:
+            if "://" not in uri:
+                return
+            if data.get("force_update"):
+                # Re-fetch from the remote server and update the local copy.
+                try:
+                    response = SystemActor().signed_request(method="get", uri=uri)
+                except (httpx.HTTPError, ssl.SSLCertVerificationError, ValueError):
+                    return
+                if response.status_code >= 400:
+                    return
+                try:
+                    cls.by_ap(
+                        canonicalise(response.json(), include_security=True),
+                        create=True,
+                        update=True,
+                        fetch_author=True,
+                    )
+                except (cls.DoesNotExist, TryAgainLater, ValueError):
+                    pass
+            else:
                 cls.by_object_uri(uri, fetch=True)
         except (cls.DoesNotExist, KeyError):
             pass
