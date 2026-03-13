@@ -925,32 +925,36 @@ class Post(StatorModel):
                 # If the post is from a blocked domain, stop and drop
                 if author.domain.recursively_blocked():
                     raise cls.DoesNotExist("Post is from a blocked domain")
-                # Use get_or_create so that concurrent workers racing on the
-                # same object_uri don't generate duplicate-key DB errors.
-                # Django's get_or_create wraps the INSERT in a savepoint and,
-                # on IntegrityError, retries the SELECT to return the existing
-                # row, so `post` always reflects the actual DB row.
-                # Use the published date to generate the ID so that remote
-                # posts are sorted by publication time, not import time.
+                # Use INSERT ... ON CONFLICT DO NOTHING via bulk_create so that
+                # concurrent workers racing on the same object_uri are handled
+                # silently at the DB level.  Unlike get_or_create (which uses
+                # savepoints that PostgreSQL always logs as ERROR-level even
+                # when caught by the application), bulk_create(ignore_conflicts)
+                # generates zero error log spam.
                 _published = parse_ld_date(data.get("published"))
                 _post_id = (
                     Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
                     if _published
                     else Snowflake.generate_post()
                 )
-                post, created = cls.objects.select_related(
-                    "author__domain"
-                ).get_or_create(
-                    object_uri=data["id"],
-                    defaults={
-                        "id": _post_id,
-                        "author": author,
-                        "content": "",
-                        "local": False,
-                        "type": data["type"],
-                        "state": PostStates.new,
-                    },
+                cls.objects.bulk_create(
+                    [
+                        cls(
+                            id=_post_id,
+                            object_uri=data["id"],
+                            author=author,
+                            content="",
+                            local=False,
+                            type=data["type"],
+                            state=PostStates.new,
+                        )
+                    ],
+                    ignore_conflicts=True,
                 )
+                post = cls.objects.select_related("author__domain").get(
+                    object_uri=data["id"]
+                )
+                created = post.url is None  # True if post is still a stub
             else:
                 raise cls.DoesNotExist(f"No post with ID {data['id']}", data)
         if update or created:
