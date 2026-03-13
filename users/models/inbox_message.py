@@ -189,7 +189,7 @@ class InboxMessage(StatorModel):
                 state="received",
                 message__type="__internal__",
                 message__object__type="FetchOutbox",
-                message__object__identity=str(identity_pk),
+                message__object__identity=identity_pk,
             ).exists():
                 return
         cls.objects.create(

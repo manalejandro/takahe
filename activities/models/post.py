@@ -1128,36 +1128,45 @@ class Post(StatorModel):
         """
         Handles an incoming create request
         """
-        with transaction.atomic():
-            # Ensure the Create actor is the Post's attributedTo
-            # attributedTo can be a string or a list (e.g. PeerTube sends a list)
-            attributed_to = data["object"].get("attributedTo")
-            if attributed_to:
-                actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
-                if data["actor"] not in actors:
-                    raise ValueError("Create actor does not match its Post object", data)
-            # Create it, stator will fan it out locally
-            cls.by_ap(data["object"], create=True, update=True, fetch_author=True)
+        # Do NOT wrap in transaction.atomic() here. get_or_create inside by_ap
+        # needs to commit the stub immediately so that a concurrent worker
+        # processing the same activity can find it via READ COMMITTED; wrapping
+        # in an outer transaction keeps the stub invisible to other workers
+        # until this transaction commits, causing get_or_create to re-raise
+        # IntegrityError on the retry-GET (post not yet committed = not visible).
+        # The final post.save() inside by_ap has its own transaction.atomic().
+
+        # Ensure the Create actor is the Post's attributedTo
+        # attributedTo can be a string or a list (e.g. PeerTube sends a list)
+        attributed_to = data["object"].get("attributedTo")
+        if attributed_to:
+            actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
+            if data["actor"] not in actors:
+                raise ValueError("Create actor does not match its Post object", data)
+        # Create it, stator will fan it out locally
+        cls.by_ap(data["object"], create=True, update=True, fetch_author=True)
 
     @classmethod
     def handle_update_ap(cls, data):
         """
         Handles an incoming update request
         """
-        with transaction.atomic():
-            # Ensure the Update actor is the Post's attributedTo
-            # attributedTo can be a string or a list (e.g. PeerTube sends a list)
-            attributed_to = data["object"].get("attributedTo")
-            if attributed_to:
-                actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
-                if data["actor"] not in actors:
-                    raise ValueError("Create actor does not match its Post object", data)
-            # Find it and update it
-            try:
-                cls.by_ap(data["object"], create=False, update=True)
-            except cls.DoesNotExist:
-                # We don't have a copy - assume we got a delete first and ignore.
-                pass
+        # Same reason as handle_create_ap: no outer transaction.atomic().
+        # The inner transaction.atomic() in by_ap (around post.save()) is enough.
+
+        # Ensure the Update actor is the Post's attributedTo
+        # attributedTo can be a string or a list (e.g. PeerTube sends a list)
+        attributed_to = data["object"].get("attributedTo")
+        if attributed_to:
+            actors = attributed_to if isinstance(attributed_to, list) else [attributed_to]
+            if data["actor"] not in actors:
+                raise ValueError("Create actor does not match its Post object", data)
+        # Find it and update it
+        try:
+            cls.by_ap(data["object"], create=False, update=True)
+        except cls.DoesNotExist:
+            # We don't have a copy - assume we got a delete first and ignore.
+            pass
 
     @classmethod
     def handle_delete_ap(cls, data):
