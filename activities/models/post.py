@@ -945,9 +945,15 @@ class Post(StatorModel):
                         )
                         created = True
                 except IntegrityError:
-                    # despite previous checks, a parallel thread managed
-                    # to create the same object already
-                    raise TryAgainLater()
+                    # A parallel worker already created the same post.
+                    # Fetch it and continue updating rather than retrying
+                    # the whole task (which would cause repeated DB errors).
+                    try:
+                        post = cls.objects.select_related("author__domain").get(
+                            object_uri=data["id"]
+                        )
+                    except cls.DoesNotExist:
+                        raise TryAgainLater()
             else:
                 raise cls.DoesNotExist(f"No post with ID {data['id']}", data)
         if update or created:
