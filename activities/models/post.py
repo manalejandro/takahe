@@ -104,6 +104,13 @@ class PostStates(StateGraph):
         """
         Creates all needed fan-out objects for a new Post.
         """
+        # Remote stub posts are created by get_or_create (race prevention) with
+        # url=None and content="" before the by_ap update block runs.  If the
+        # update failed (e.g. TryAgainLater for author/emoji) the stub is still
+        # in "new" state – don't fan it out until it's fully populated.
+        if not instance.local and instance.url is None:
+            return None  # retry after try_interval; InboxMessage will fill it
+
         # Only fan out if the post was published in the last day or it's local
         # (we don't want to fan out anything older that that which is remote)
         if instance.local or (timezone.now() - instance.published) < datetime.timedelta(
