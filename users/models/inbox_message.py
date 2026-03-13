@@ -177,8 +177,21 @@ class InboxMessage(StatorModel):
     @classmethod
     def create_internal(cls, payload):
         """
-        Creates an internal action message
+        Creates an internal action message.
+
+        For FetchOutbox payloads, skips creation if a pending message for the
+        same identity already exists, to prevent duplicate concurrent outbox
+        fetches from racing on post creation.
         """
+        if payload.get("type") == "FetchOutbox":
+            identity_pk = payload.get("identity")
+            if identity_pk and cls.objects.filter(
+                state="received",
+                message__type="__internal__",
+                message__object__type="FetchOutbox",
+                message__object__identity=str(identity_pk),
+            ).exists():
+                return
         cls.objects.create(
             message={
                 "type": "__internal__",
