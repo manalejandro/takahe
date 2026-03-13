@@ -334,14 +334,16 @@ class Emoji(StatorModel):
                     emoji.transition_perform("outdated")
                 return emoji
 
-        emoji = cls.objects.create(
-            shortcode=shortcode,
-            domain=None if domain.local else domain,
-            local=domain.local,
+        emoji, _ = cls.objects.get_or_create(
             object_uri=data["id"],
-            mimetype=mimetype or "application/octet-stream",
-            category=category,
-            remote_url=icon["url"],
+            defaults={
+                "shortcode": shortcode,
+                "domain": None if domain.local else domain,
+                "local": domain.local,
+                "mimetype": mimetype or "application/octet-stream",
+                "category": category,
+                "remote_url": icon["url"],
+            },
         )
         return emoji
 

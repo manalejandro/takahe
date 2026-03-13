@@ -918,42 +918,32 @@ class Post(StatorModel):
                 # If the post is from a blocked domain, stop and drop
                 if author.domain.recursively_blocked():
                     raise cls.DoesNotExist("Post is from a blocked domain")
-                # Use INSERT ... ON CONFLICT DO NOTHING so that concurrent
-                # workers don't race on the same object_uri and don't
-                # produce postgres error log entries.
-                # Use the published date to generate the ID so that
-                # remote posts are sorted by publication time, not import time.
+                # Use get_or_create so that concurrent workers racing on the
+                # same object_uri don't generate duplicate-key DB errors.
+                # Django's get_or_create wraps the INSERT in a savepoint and,
+                # on IntegrityError, retries the SELECT to return the existing
+                # row, so `post` always reflects the actual DB row.
+                # Use the published date to generate the ID so that remote
+                # posts are sorted by publication time, not import time.
                 _published = parse_ld_date(data.get("published"))
                 _post_id = (
                     Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
                     if _published
                     else Snowflake.generate_post()
                 )
-                _inserted = cls.objects.bulk_create(
-                    [
-                        cls(
-                            id=_post_id,
-                            object_uri=data["id"],
-                            author=author,
-                            content="",
-                            local=False,
-                            type=data["type"],
-                            state=PostStates.new,
-                        )
-                    ],
-                    ignore_conflicts=True,
+                post, created = cls.objects.select_related(
+                    "author__domain"
+                ).get_or_create(
+                    object_uri=data["id"],
+                    defaults={
+                        "id": _post_id,
+                        "author": author,
+                        "content": "",
+                        "local": False,
+                        "type": data["type"],
+                        "state": PostStates.new,
+                    },
                 )
-                if _inserted:
-                    post = _inserted[0]
-                    created = True
-                else:
-                    # Another worker already inserted this post; fetch it.
-                    try:
-                        post = cls.objects.select_related("author__domain").get(
-                            object_uri=data["id"]
-                        )
-                    except cls.DoesNotExist:
-                        raise TryAgainLater()
             else:
                 raise cls.DoesNotExist(f"No post with ID {data['id']}", data)
         if update or created:
