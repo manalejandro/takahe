@@ -907,6 +907,11 @@ class Identity(StatorModel):
                 continue
             if not post_uri or "://" not in post_uri:
                 continue
+            # Skip posts we already have locally to avoid duplicate-key DB errors
+            from activities.models import Post as _Post
+            if _Post.objects.filter(object_uri=post_uri).exists():
+                count += 1
+                continue
             try:
                 Post.by_object_uri(post_uri, fetch=True)
                 count += 1
@@ -994,6 +999,9 @@ class Identity(StatorModel):
         webfinger if it's available.
         """
         from activities.models import Emoji
+
+        # Track whether this is the first successful fetch for this identity
+        is_first_fetch = self.fetched is None
 
         if self.local:
             raise ValueError("Cannot fetch local identities")
@@ -1154,8 +1162,9 @@ class Identity(StatorModel):
                 }
             )
 
-        # Fetch recent posts from the outbox in a followup task
-        if self.outbox_uri:
+        # Fetch recent posts from the outbox in a followup task, but only
+        # on first discovery to avoid re-downloading posts on every refresh.
+        if self.outbox_uri and is_first_fetch:
             InboxMessage.create_internal(
                 {
                     "type": "FetchOutbox",
