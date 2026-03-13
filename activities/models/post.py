@@ -13,7 +13,6 @@ from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models, transaction
-from django.db.utils import IntegrityError
 from django.template import loader
 from django.template.defaultfilters import linebreaks_filter
 from django.utils import timezone
@@ -919,22 +918,20 @@ class Post(StatorModel):
                 # If the post is from a blocked domain, stop and drop
                 if author.domain.recursively_blocked():
                     raise cls.DoesNotExist("Post is from a blocked domain")
-                # parallelism may cause another simultaneous worker thread
-                # to try to create the same post - so watch for that and
-                # try to avoid failing the entire transaction
-                try:
-                    # Use the published date to generate the ID so that
-                    # remote posts are sorted by publication time, not import time.
-                    _published = parse_ld_date(data.get("published"))
-                    _post_id = (
-                        Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
-                        if _published
-                        else Snowflake.generate_post()
-                    )
-                    # wrapped in a transaction to avoid breaking the outer
-                    # transaction
-                    with transaction.atomic():
-                        post = cls.objects.create(
+                # Use INSERT ... ON CONFLICT DO NOTHING so that concurrent
+                # workers don't race on the same object_uri and don't
+                # produce postgres error log entries.
+                # Use the published date to generate the ID so that
+                # remote posts are sorted by publication time, not import time.
+                _published = parse_ld_date(data.get("published"))
+                _post_id = (
+                    Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
+                    if _published
+                    else Snowflake.generate_post()
+                )
+                _inserted = cls.objects.bulk_create(
+                    [
+                        cls(
                             id=_post_id,
                             object_uri=data["id"],
                             author=author,
@@ -943,11 +940,14 @@ class Post(StatorModel):
                             type=data["type"],
                             state=PostStates.new,
                         )
-                        created = True
-                except IntegrityError:
-                    # A parallel worker already created the same post.
-                    # Fetch it and continue updating rather than retrying
-                    # the whole task (which would cause repeated DB errors).
+                    ],
+                    ignore_conflicts=True,
+                )
+                if _inserted:
+                    post = _inserted[0]
+                    created = True
+                else:
+                    # Another worker already inserted this post; fetch it.
                     try:
                         post = cls.objects.select_related("author__domain").get(
                             object_uri=data["id"]
