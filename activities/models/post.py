@@ -174,7 +174,15 @@ class PostStates(StateGraph):
 class PostQuerySet(models.QuerySet):
     def not_hidden(self):
         query = self.exclude(
-            state__in=[PostStates.deleted, PostStates.deleted_fanned_out]
+            state__in=[
+                PostStates.deleted,
+                PostStates.deleted_fanned_out,
+                PostStates.scheduled,
+            ]
+        ).exclude(
+            # Exclude remote stubs that have not yet been fully populated
+            local=False,
+            url__isnull=True,
         )
         return query
 
@@ -184,6 +192,7 @@ class PostQuerySet(models.QuerySet):
                 Post.Visibilities.public,
                 Post.Visibilities.local_only,
             ],
+            published__lte=timezone.now(),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)
@@ -196,6 +205,7 @@ class PostQuerySet(models.QuerySet):
                 Post.Visibilities.local_only,
             ],
             local=True,
+            published__lte=timezone.now(),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)

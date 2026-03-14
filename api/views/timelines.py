@@ -1,6 +1,7 @@
 from django.db import models
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from hatchway import ApiError, ApiResponse, api_view
 
 from activities.models import Post, TimelineEvent
@@ -176,6 +177,7 @@ def list_timeline(
     queryset = (
         Post.objects.filter(
             author_id__in=list_identity_ids,
+            published__lte=timezone.now(),
         )
         .not_hidden()
         .visible_to(request.identity, include_replies=True)
