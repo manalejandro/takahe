@@ -187,29 +187,31 @@ class PostQuerySet(models.QuerySet):
         return query
 
     def public(self, include_replies: bool = False):
-        # Note: scheduled local posts are already excluded by not_hidden() via
-        # the 'scheduled' state exclusion.  Do NOT add published__lte here:
-        # it would hide remote posts from servers with minor clock skew and
-        # cause them to be permanently lost from the federated timeline.
+        # Allow up to 5 minutes of clock skew from remote servers, but keep
+        # far-future posts out of the timeline: their Snowflake IDs would be
+        # enormous and would cause clients using since_id to never see new posts.
+        # Local scheduled posts are already excluded by the 'scheduled' state
+        # in not_hidden(), so this filter only meaningfully affects remote posts.
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
                 Post.Visibilities.local_only,
             ],
+            published__lte=timezone.now() + datetime.timedelta(minutes=5),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)
         return query
 
     def local_public(self, include_replies: bool = False):
-        # Same reasoning as public(): scheduled posts are excluded by state,
-        # not by published date.
+        # Same 5-minute grace period as public().
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
                 Post.Visibilities.local_only,
             ],
             local=True,
+            published__lte=timezone.now() + datetime.timedelta(minutes=5),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)
