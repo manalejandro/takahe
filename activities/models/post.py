@@ -187,25 +187,29 @@ class PostQuerySet(models.QuerySet):
         return query
 
     def public(self, include_replies: bool = False):
+        # Note: scheduled local posts are already excluded by not_hidden() via
+        # the 'scheduled' state exclusion.  Do NOT add published__lte here:
+        # it would hide remote posts from servers with minor clock skew and
+        # cause them to be permanently lost from the federated timeline.
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
                 Post.Visibilities.local_only,
             ],
-            published__lte=timezone.now(),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)
         return query
 
     def local_public(self, include_replies: bool = False):
+        # Same reasoning as public(): scheduled posts are excluded by state,
+        # not by published date.
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
                 Post.Visibilities.local_only,
             ],
             local=True,
-            published__lte=timezone.now(),
         )
         if not include_replies:
             return query.filter(in_reply_to__isnull=True)
@@ -985,7 +989,12 @@ class Post(StatorModel):
                 post.content = post.summary
                 post.summary = None
             post.sensitive = data.get("sensitive", False)
-            post.published = parse_ld_date(data.get("published"))
+            # Only update published if the AP data actually supplies a date;
+            # setting it to None would break the NOT NULL constraint and leave
+            # the post as an unpopulated stub that is hidden from timelines.
+            _published = parse_ld_date(data.get("published"))
+            if _published is not None:
+                post.published = _published
             post.edited = parse_ld_date(data.get("updated"))
             post.in_reply_to = data.get("inReplyTo")
             # Mentions and hashtags
