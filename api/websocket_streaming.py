@@ -4,6 +4,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from asgiref.sync import sync_to_async
+from django.db import close_old_connections
 
 from activities.models import TimelineEvent
 from activities.services import TimelineService
@@ -18,6 +19,7 @@ def get_token_and_identity(access_token):
     Fetch token and identity from database.
     Must be a separate function for sync_to_async to work properly.
     """
+    close_old_connections()
     try:
         token = Token.objects.select_related("identity").get(
             token=access_token,
@@ -38,6 +40,7 @@ def get_token_and_identity(access_token):
 @sync_to_async
 def check_public_timeline_enabled():
     """Check if public timeline is enabled."""
+    close_old_connections()
     try:
         return Config.system.public_timeline
     except Exception as e:
@@ -189,7 +192,9 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
         if stream_type == "user":
             if identity:
                 queryset = TimelineService(identity).home().select_related("subject_post")
-                latest_event = await asyncio.to_thread(lambda: queryset.order_by("-id").first())
+                latest_event = await asyncio.to_thread(
+                    lambda: (close_old_connections(), queryset.order_by("-id").first())[1]
+                )
                 if latest_event:
                     last_event_id = str(latest_event.id)
                     print(f"[WebSocket] Baseline event ID: {last_event_id}")
@@ -206,7 +211,9 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                     queryset = queryset.filter(local=True)
             
             if queryset is not None:
-                latest_post = await asyncio.to_thread(lambda: queryset.order_by("-id").first())
+                latest_post = await asyncio.to_thread(
+                    lambda: (close_old_connections(), queryset.order_by("-id").first())[1]
+                )
                 if latest_post:
                     last_event_id = str(latest_post.id)
                     print(f"[WebSocket] Baseline post ID: {last_event_id}")
@@ -274,7 +281,7 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                 
                 # Execute query synchronously (Django ORM is not async-safe by default)
                 events = await asyncio.to_thread(
-                    lambda: list(queryset.order_by("id")[:20])
+                    lambda: (close_old_connections(), list(queryset.order_by("id")[:20]))[1]
                 )
                 
                 if events:
@@ -329,7 +336,7 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                 
                 # Execute query synchronously
                 posts = await asyncio.to_thread(
-                    lambda: list(queryset.order_by("id")[:20])
+                    lambda: (close_old_connections(), list(queryset.order_by("id")[:20]))[1]
                 )
                 
                 if posts:
