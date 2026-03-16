@@ -726,7 +726,7 @@ def parse_ld_date(value: str | None) -> datetime.datetime | None:
     dt = parser.isoparse(value).replace(microsecond=0)
     # Ensure timezone-aware datetime
     if dt.tzinfo is None:
-        dt = timezone.make_aware(dt, timezone.utc)
+        dt = timezone.make_aware(dt, datetime.timezone.utc)
     return dt
 
 
