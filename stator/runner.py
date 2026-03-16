@@ -7,7 +7,7 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 from django.utils import timezone
 
 from core import sentry
@@ -154,6 +154,8 @@ class StatorRunner:
                     if self.scheduling_timer.check():
                         # Set up the watchdog timer (each time we do this the previous one is cancelled)
                         signal.alarm(self.schedule_interval * 2)
+                        # Close stale connections in main thread before DB work
+                        close_old_connections()
                         # Write liveness file if configured
                         if self.liveness_file:
                             with open(self.liveness_file, "w") as fh:
@@ -321,6 +323,9 @@ def task_transition(instance: StatorModel, in_thread: bool = True):
     """
     Runs one state transition/action.
     """
+    # Close any stale connections before starting (PostgreSQL may have timed them out)
+    if in_thread:
+        connections.close_all()
     task_name = f"stator.task_transition:{instance._meta.label_lower}#{{id}} from {instance.state}"
     started = time.monotonic()
     domain_str = get_instance_domain(instance)
@@ -353,6 +358,9 @@ def task_deletion(model: type[StatorModel], in_thread: bool = True):
     """
     Runs one model deletion set.
     """
+    # Close any stale connections before starting (PostgreSQL may have timed them out)
+    if in_thread:
+        connections.close_all()
     # Loop, running deletions every second, until there are no more to do
     while True:
         deleted = model.transition_delete_due()
