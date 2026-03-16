@@ -188,35 +188,33 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
     
     # Get baseline - the latest event/post ID without sending it
     # This marks our starting point for NEW events only
-    try:
+    def _get_baseline():
+        close_old_connections()
         if stream_type == "user":
-            if identity:
-                queryset = TimelineService(identity).home().select_related("subject_post")
-                latest_event = await asyncio.to_thread(
-                    lambda: (close_old_connections(), queryset.order_by("-id").first())[1]
-                )
-                if latest_event:
-                    last_event_id = str(latest_event.id)
-                    print(f"[WebSocket] Baseline event ID: {last_event_id}")
+            if not identity:
+                return None
+            qs = TimelineService(identity).home().select_related("subject_post")
+            latest = qs.order_by("-id").first()
+            return str(latest.id) if latest else None
         else:
-            # For public timelines, get latest post ID directly from the timeline service
-            queryset = None
+            qs = None
             if stream_type == "public":
-                queryset = TimelineService(identity).federated()
+                qs = TimelineService(identity).federated()
             elif stream_type == "public:local":
-                queryset = TimelineService(identity).local()
+                qs = TimelineService(identity).local()
             elif stream_type in ["hashtag", "hashtag:local"] and hashtag:
-                queryset = TimelineService(identity).hashtag(hashtag.lower())
+                qs = TimelineService(identity).hashtag(hashtag.lower())
                 if stream_type == "hashtag:local":
-                    queryset = queryset.filter(local=True)
-            
-            if queryset is not None:
-                latest_post = await asyncio.to_thread(
-                    lambda: (close_old_connections(), queryset.order_by("-id").first())[1]
-                )
-                if latest_post:
-                    last_event_id = str(latest_post.id)
-                    print(f"[WebSocket] Baseline post ID: {last_event_id}")
+                    qs = qs.filter(local=True)
+            if qs is not None:
+                latest = qs.order_by("-id").first()
+                return str(latest.id) if latest else None
+        return None
+
+    try:
+        last_event_id = await asyncio.to_thread(_get_baseline)
+        if last_event_id:
+            print(f"[WebSocket] Baseline ID: {last_event_id}")
     except Exception as e:
         print(f"[WebSocket] Error getting baseline: {e}")
         import traceback
@@ -239,73 +237,41 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
     
     try:
         while True:
-            # Determine which timeline to query
-            queryset = None
-            
-            if stream_type == "user":
-                if not identity:
-                    break
-                queryset = TimelineService(identity).home()
-            elif stream_type == "public":
-                queryset = TimelineService(identity).federated()
-            elif stream_type == "public:local":
-                queryset = TimelineService(identity).local()
-            elif stream_type == "hashtag" and hashtag:
-                queryset = TimelineService(identity).hashtag(hashtag.lower())
-            elif stream_type == "hashtag:local" and hashtag:
-                queryset = TimelineService(identity).hashtag(hashtag.lower()).filter(local=True)
-            elif stream_type == "list" and list_id:
+            if stream_type == "list" and list_id:
                 # List timeline not fully implemented yet
                 await asyncio.sleep(check_interval)
                 continue
-            
-            if queryset is None:
-                break
-            
-            # Get new events
+
             if stream_type == "user":
-                # For user timeline, we get TimelineEvents
-                queryset = queryset.select_related(
-                    "subject_post",
-                    "subject_post__author",
-                    "subject_post__author__domain",
-                ).prefetch_related(
-                    "subject_post__attachments",
-                    "subject_post__mentions",
-                    "subject_post__mentions__domain",
-                    "subject_post__emojis",
-                )
-                
-                if last_event_id:
-                    queryset = queryset.filter(id__gt=int(last_event_id))
-                
-                # Execute query synchronously (Django ORM is not async-safe by default)
-                events = await asyncio.to_thread(
-                    lambda: (close_old_connections(), list(queryset.order_by("id")[:20]))[1]
-                )
-                
+                if not identity:
+                    break
+
+                _last = last_event_id
+
+                def _fetch_user_events():
+                    close_old_connections()
+                    qs = TimelineService(identity).home().select_related(
+                        "subject_post",
+                        "subject_post__author",
+                        "subject_post__author__domain",
+                    ).prefetch_related(
+                        "subject_post__attachments",
+                        "subject_post__mentions",
+                        "subject_post__mentions__domain",
+                        "subject_post__emojis",
+                    )
+                    if _last:
+                        qs = qs.filter(id__gt=int(_last))
+                    return list(qs.order_by("id")[:20])
+
+                events = await asyncio.to_thread(_fetch_user_events)
+
                 if events:
                     print(f"[WebSocket] Found {len(events)} new events for user stream")
-                
+
                 for event in events:
                     last_event_id = str(event.id)
-                    
-                    # Handle different event types
-                    if event.type == TimelineEvent.Types.post:
-                        status_data = await asyncio.to_thread(
-                            schemas.Status.from_post,
-                            event.subject_post,
-                            identity=identity,
-                        )
-                        payload = {
-                            "event": "update",
-                            "payload": json.dumps(status_data.dict()),
-                        }
-                        await send({
-                            "type": "websocket.send",
-                            "text": json.dumps(payload),
-                        })
-                    elif event.type == TimelineEvent.Types.boost:
+                    if event.type in (TimelineEvent.Types.post, TimelineEvent.Types.boost):
                         status_data = await asyncio.to_thread(
                             schemas.Status.from_post,
                             event.subject_post,
@@ -320,28 +286,40 @@ async def stream_events(send, receive, stream_type, identity, hashtag=None, list
                             "text": json.dumps(payload),
                         })
             else:
-                # For public/hashtag timelines, we get Posts
-                queryset = queryset.select_related(
-                    "author",
-                    "author__domain",
-                ).prefetch_related(
-                    "attachments",
-                    "mentions",
-                    "mentions__domain",
-                    "emojis",
-                )
-                
-                if last_event_id:
-                    queryset = queryset.filter(id__gt=int(last_event_id))
-                
-                # Execute query synchronously
-                posts = await asyncio.to_thread(
-                    lambda: (close_old_connections(), list(queryset.order_by("id")[:20]))[1]
-                )
-                
+                _last = last_event_id
+                _stream = stream_type
+                _hashtag = hashtag
+
+                def _fetch_public_posts():
+                    close_old_connections()
+                    if _stream == "public":
+                        qs = TimelineService(identity).federated()
+                    elif _stream == "public:local":
+                        qs = TimelineService(identity).local()
+                    elif _stream == "hashtag" and _hashtag:
+                        qs = TimelineService(identity).hashtag(_hashtag.lower())
+                    elif _stream == "hashtag:local" and _hashtag:
+                        qs = TimelineService(identity).hashtag(_hashtag.lower()).filter(local=True)
+                    else:
+                        return []
+                    qs = qs.select_related(
+                        "author",
+                        "author__domain",
+                    ).prefetch_related(
+                        "attachments",
+                        "mentions",
+                        "mentions__domain",
+                        "emojis",
+                    )
+                    if _last:
+                        qs = qs.filter(id__gt=int(_last))
+                    return list(qs.order_by("id")[:20])
+
+                posts = await asyncio.to_thread(_fetch_public_posts)
+
                 if posts:
                     print(f"[WebSocket] Found {len(posts)} new posts for {stream_type} stream")
-                
+
                 for post in posts:
                     last_event_id = str(post.id)
                     status_data = await asyncio.to_thread(
