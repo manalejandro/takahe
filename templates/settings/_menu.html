@@ -54,10 +54,13 @@
             <i class="fa-solid fa-display"></i>
             <span>Interface</span>
         </a>
-        <a href="{% url "logout" %}">
-            <i class="fa-solid fa-right-from-bracket" title="Logout"></i>
-            <span>Logout</span>
-        </a>
+        <form method="post" action="{% url "logout" %}">
+            {% csrf_token %}
+            <button type="submit">
+                <i class="fa-solid fa-right-from-bracket" title="Logout"></i>
+                <span>Logout</span>
+            </button>
+        </form>
         <hr>
         <h3>Identity Settings</h3>
         <a href="/" title="Go to Identity Select">
