@@ -40,6 +40,29 @@ class TimelineService:
         ).values("source_id")
         return queryset.exclude(author_id__in=outbound).exclude(author_id__in=inbound)
 
+    def _exclude_blocked_boosts(
+        self, queryset: models.QuerySet
+    ) -> models.QuerySet:
+        """
+        Excludes boost interactions from blocked/muted boosters, mirroring
+        _exclude_blocked but keyed on PostInteraction.identity_id (the booster).
+        """
+        if self.identity is None:
+            return queryset
+        active_states = BlockStates.group_active()
+        outbound = Block.objects.filter(
+            source=self.identity,
+            state__in=active_states,
+        ).values("target_id")
+        inbound = Block.objects.filter(
+            target=self.identity,
+            mute=False,
+            state__in=active_states,
+        ).values("source_id")
+        return queryset.exclude(identity_id__in=outbound).exclude(
+            identity_id__in=inbound
+        )
+
     @classmethod
     def event_queryset(cls):
         return TimelineEvent.objects.select_related(
@@ -91,6 +114,42 @@ class TimelineService:
             .order_by("-id")
         )
         return self._exclude_blocked(queryset)
+
+    def public_boosts(self, local_only: bool = False) -> models.QuerySet:
+        """
+        Returns public PostInteraction (boost/announce) objects suitable for
+        inclusion in the local or federated public timeline.
+
+        Both Post and PostInteraction Snowflake IDs encode creation time in the
+        same high-bit field, so they are directly comparable for chronological
+        pagination (max_id / min_id / since_id).
+        """
+        queryset = (
+            PostInteraction.objects.filter(
+                type=PostInteraction.Types.boost,
+                state__in=PostInteractionStates.group_active(),
+                # Only boosts of fully-fetched, truly public posts
+                post__visibility=Post.Visibilities.public,
+                post__url__isnull=False,
+                identity__restriction=Identity.Restriction.none,
+            )
+            .select_related(
+                "identity",
+                "identity__domain",
+                "post",
+                "post__author",
+                "post__author__domain",
+            )
+            .prefetch_related(
+                "post__attachments",
+                "post__mentions",
+                "post__emojis",
+            )
+            .order_by("-id")
+        )
+        if local_only:
+            queryset = queryset.filter(identity__local=True)
+        return self._exclude_blocked_boosts(queryset)
 
     def hashtag(self, hashtag: str | Hashtag) -> models.QuerySet[Post]:
         queryset = (
