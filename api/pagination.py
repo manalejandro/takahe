@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import urllib.parse
 from collections.abc import Callable
 from typing import Any, Generic, Protocol, TypeVar
@@ -9,6 +10,7 @@ from django.http import HttpRequest
 from hatchway.http import ApiResponse
 
 from activities.models import PostInteraction, TimelineEvent
+from core.snowflake import Snowflake
 
 T = TypeVar("T")
 
@@ -223,27 +225,72 @@ class MastodonPaginator:
         id_field = "id"
         reverse = False
         if home:
-            # The home timeline interleaves Post IDs and PostInteraction IDs in an
-            # annotated field called "subject_id".
-            id_field = "subject_id"
+            # Annotate each TimelineEvent with the local DB creation timestamp
+            # of its subject:
+            #   • Post.created        for post-type events
+            #   • PostInteraction.created  for boost-type events
+            # Both fields are auto_now_add DateTimeFields that record when the
+            # row was first stored on *this* server.  Using them gives a single
+            # comparable "local receipt time" for posts and boosts alike.
+            #
+            # The previous approach used subject_post_id / subject_post_interaction_id
+            # (Snowflake integers).  Post.id encodes the ORIGINAL PUBLICATION TIME for
+            # remote posts (via Snowflake.generate_from_datetime), while
+            # PostInteraction.id always encodes the LOCAL BOOST TIME.  Sorting by
+            # those mismatched ID spaces puts every recent boost above every older
+            # remote post, effectively hiding new posts behind a flood of boosts.
+            id_field = "subject_created"
             queryset = queryset.annotate(
-                subject_id=Case(
-                    When(type=TimelineEvent.Types.post, then=F("subject_post_id")),
-                    default=F("subject_post_interaction"),
+                subject_created=Case(
+                    When(
+                        type=TimelineEvent.Types.post,
+                        then=F("subject_post__created"),
+                    ),
+                    default=F("subject_post_interaction__created"),
                 )
             )
 
-        # These "does not start with interaction" checks can be removed after a
-        # couple months, when clients have flushed them out.
-        if max_id and not max_id.startswith("interaction"):
-            filters[f"{id_field}__lt"] = max_id
-        if since_id and not since_id.startswith("interaction"):
-            filters[f"{id_field}__gt"] = since_id
-        if min_id and not min_id.startswith("interaction"):
-            # Min ID requires items _immediately_ newer than specified, so we
-            # invert the ordering to accommodate
-            filters[f"{id_field}__gt"] = min_id
-            reverse = True
+        def _cursor_to_dt(cursor: str) -> datetime.datetime | None:
+            """Convert a Snowflake-ID cursor string to a UTC datetime."""
+            try:
+                ts = Snowflake.get_time(int(cursor))
+                return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+            except (ValueError, TypeError):
+                return None
+
+        if home:
+            # For the home timeline the cursors clients send are Post.id /
+            # PostInteraction.id Snowflake integers.  For remote posts the
+            # encoded timestamp is the original publication time, which closely
+            # approximates the local receipt time for fresh federation traffic.
+            # We decode these IDs to datetimes and compare against the
+            # DateTimeField annotation rather than doing an integer comparison
+            # across incompatible ID spaces.
+            if max_id and not max_id.startswith("interaction"):
+                dt_val = _cursor_to_dt(max_id)
+                if dt_val is not None:
+                    filters[f"{id_field}__lt"] = dt_val
+            if since_id and not since_id.startswith("interaction"):
+                dt_val = _cursor_to_dt(since_id)
+                if dt_val is not None:
+                    filters[f"{id_field}__gt"] = dt_val
+            if min_id and not min_id.startswith("interaction"):
+                dt_val = _cursor_to_dt(min_id)
+                if dt_val is not None:
+                    filters[f"{id_field}__gt"] = dt_val
+                    reverse = True
+        else:
+            # These "does not start with interaction" checks can be removed after a
+            # couple months, when clients have flushed them out.
+            if max_id and not max_id.startswith("interaction"):
+                filters[f"{id_field}__lt"] = max_id
+            if since_id and not since_id.startswith("interaction"):
+                filters[f"{id_field}__gt"] = since_id
+            if min_id and not min_id.startswith("interaction"):
+                # Min ID requires items _immediately_ newer than specified, so we
+                # invert the ordering to accommodate
+                filters[f"{id_field}__gt"] = min_id
+                reverse = True
 
         # Default is to order by ID descending (newest first), except for min_id
         # queries, which should order by ID for limiting, then reverse the results to be

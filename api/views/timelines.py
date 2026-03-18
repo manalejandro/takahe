@@ -1,3 +1,6 @@
+import datetime
+import urllib.parse
+
 from django.db import models
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
@@ -10,6 +13,7 @@ from api import schemas
 from api.decorators import scope_required
 from api.pagination import MastodonPaginator, PaginatingApiResponse, PaginationResult
 from core.models import Config
+from core.snowflake import Snowflake
 from users.models import Bookmark, List, ListMember
 
 
@@ -89,28 +93,54 @@ def public(
         "attachments", "mentions", "mentions__domain", "emojis"
     )
 
-    # Apply Mastodon-style pagination bounds to both querysets.
-    # Post IDs and PostInteraction IDs use the same Snowflake time encoding
-    # (timestamp in the high bits), so they are directly comparable for
-    # chronological ordering and cross-queryset pagination.
+    # Use local .created timestamps (auto_now_add) for both ordering and
+    # pagination.  Post.id encodes the ORIGINAL PUBLICATION TIME for remote
+    # posts, whereas PostInteraction.id encodes the LOCAL BOOST TIME.
+    # Sorting these two mismatched ID spaces together systematically places
+    # every boost above every remote post, making original posts invisible on
+    # the first page when there are more recent boosts.
+    # Post.created and PostInteraction.created both store the moment the row
+    # was first inserted into this server's database, giving a single,
+    # comparable "local receipt time" reference for all items.
     reverse = False
     if max_id:
-        post_qs = post_qs.filter(id__lt=max_id)
-        boost_qs = boost_qs.filter(id__lt=max_id)
+        try:
+            max_dt = datetime.datetime.fromtimestamp(
+                Snowflake.get_time(int(max_id)), tz=datetime.timezone.utc
+            )
+        except (ValueError, TypeError):
+            raise ApiError(error="invalid max_id", status=422)
+        post_qs = post_qs.filter(created__lt=max_dt)
+        boost_qs = boost_qs.filter(created__lt=max_dt)
     if since_id:
-        post_qs = post_qs.filter(id__gt=since_id)
-        boost_qs = boost_qs.filter(id__gt=since_id)
+        try:
+            since_dt = datetime.datetime.fromtimestamp(
+                Snowflake.get_time(int(since_id)), tz=datetime.timezone.utc
+            )
+        except (ValueError, TypeError):
+            raise ApiError(error="invalid since_id", status=422)
+        post_qs = post_qs.filter(created__gt=since_dt)
+        boost_qs = boost_qs.filter(created__gt=since_dt)
     if min_id:
-        post_qs = post_qs.filter(id__gt=min_id)
-        boost_qs = boost_qs.filter(id__gt=min_id)
+        try:
+            min_dt = datetime.datetime.fromtimestamp(
+                Snowflake.get_time(int(min_id)), tz=datetime.timezone.utc
+            )
+        except (ValueError, TypeError):
+            raise ApiError(error="invalid min_id", status=422)
+        post_qs = post_qs.filter(created__gt=min_dt)
+        boost_qs = boost_qs.filter(created__gt=min_dt)
         reverse = True
 
-    # Fetch from each queryset and merge chronologically.
+    post_qs = post_qs.order_by("-created")
+    boost_qs = boost_qs.order_by("-created")
+
+    # Fetch from each queryset and merge chronologically by local receipt time.
     posts = list(post_qs[:limit])
     boosts = list(boost_qs[:limit])
     combined = sorted(
-        [(p.id, "post", p) for p in posts]
-        + [(b.id, "boost", b) for b in boosts],
+        [(p.created, "post", p) for p in posts]
+        + [(b.created, "boost", b) for b in boosts],
         key=lambda x: x[0],
         reverse=not reverse,
     )[:limit]
@@ -157,11 +187,63 @@ def public(
                 )
             )
 
-    return PaginatingApiResponse(
+    return _public_paginating_response(
         statuses,
+        combined=combined,
         request=request,
         include_params=["limit", "local", "remote", "only_media"],
     )
+
+
+def _public_paginating_response(
+    statuses: list,
+    combined: list,
+    request,
+    include_params: list[str],
+) -> PaginatingApiResponse:
+    """
+    Build a PaginatingApiResponse for the public/federated timeline, using
+    local-receipt-time-based Snowflake IDs as pagination cursors instead of the
+    status .id values.  The status .id values use Post.id (which for remote
+    posts encodes the original publication time, not the local receipt time),
+    so they cannot serve as reliable pagination anchors when posts and boosts
+    are sorted together by Post.created / PostInteraction.created.
+    """
+    response = PaginatingApiResponse(
+        statuses,
+        request=request,
+        include_params=include_params,
+    )
+    if not combined:
+        return response
+
+    # combined is a list of (created_datetime, item_type, item).
+    # Build created-time-encoded Snowflake cursors so that subsequent
+    # max_id / min_id requests decode to the correct local-receipt boundary.
+    first_dt = combined[0][0]   # most recently created item (newest)
+    last_dt = combined[-1][0]   # oldest item on this page
+
+    # Generate deterministic cursors: strip the random bits from the Snowflake
+    # by rebuilding from the millisecond timestamp component only (rand_seq=0).
+    def _dt_to_cursor(dt: datetime.datetime) -> str:
+        ts_ms = max(0, int((dt.timestamp() - Snowflake.EPOCH) * 1000))
+        return str((ts_ms << 22) | Snowflake.TYPE_POST)
+
+    params = PaginatingApiResponse.filter_params(request, include_params)
+    base_url = request.build_absolute_uri(request.path)
+
+    next_params = dict(params)
+    next_params["max_id"] = _dt_to_cursor(last_dt)
+
+    prev_params = dict(params)
+    prev_params["min_id"] = _dt_to_cursor(first_dt)
+
+    response.headers["link"] = (
+        f"<{base_url}?{urllib.parse.urlencode(next_params)}>; rel=\"next\""
+        ", "
+        f"<{base_url}?{urllib.parse.urlencode(prev_params)}>; rel=\"prev\""
+    )
+    return response
 
 
 @scope_required("read:statuses")
