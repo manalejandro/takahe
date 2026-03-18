@@ -96,6 +96,7 @@ def test_identity_max_per_user(config_system, client):
 
 
 @pytest.mark.django_db
+@pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 def test_fetch_actor(httpx_mock, config_system):
     """
     Ensures that making identities via actor fetching works
@@ -207,6 +208,7 @@ def test_fetch_actor(httpx_mock, config_system):
 
 
 @pytest.mark.django_db
+@pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 def test_fetch_webfinger_url(httpx_mock: HTTPXMock, config_system):
     """
     Ensures that we can deal with various kinds of webfinger URLs

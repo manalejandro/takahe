@@ -76,6 +76,7 @@ def test_search_not_found(httpx_mock: HTTPXMock, api_client):
 
 
 @pytest.mark.django_db
+@pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 @pytest.mark.parametrize(
     "encoding",
     [
@@ -98,6 +99,7 @@ def test_search(
     api_client,
 ):
     httpx_mock.add_response(
+        is_reusable=True,
         headers={"Content-Type": f"{content_type}; charset={encoding}"},
         content=test_account_json.encode(encoding),
     )

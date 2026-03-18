@@ -8,6 +8,7 @@ from users.services import IdentityService
 
 
 @pytest.mark.django_db
+@pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 @pytest.mark.parametrize("ref_only", [True, False])
 def test_follow(
     identity: Identity,

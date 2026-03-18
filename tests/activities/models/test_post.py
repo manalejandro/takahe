@@ -13,6 +13,7 @@ def test_fetch_post(httpx_mock: HTTPXMock, config_system):
     """
     httpx_mock.add_response(
         url="https://example.com/test-actor",
+        is_reusable=True,
         json={
             "@context": [
                 "https://www.w3.org/ns/activitystreams",
@@ -222,7 +223,9 @@ def test_post_transitions(identity, stator):
         content="<p>Hello!</p>",
         author=identity,
         local=False,
+        url="https://example.com/test-post",
         visibility=Post.Visibilities.mentioned,
+        state=PostStates.new,
     )
     # Test: | --> new --> fanned_out
     assert post.state == str(PostStates.new)

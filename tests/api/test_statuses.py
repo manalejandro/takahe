@@ -1,6 +1,6 @@
 import pytest
 
-from activities.models import Post, PostAttachment, PostAttachmentStates
+from activities.models import Post, PostAttachment, PostAttachmentStates, PostStates
 
 
 @pytest.mark.django_db
@@ -107,6 +107,8 @@ def test_mention_format(api_client, identity, remote_identity):
         author=remote_identity,
         content='<p>Hey <a href="https://example.com/@test/" class="u-url mention" rel="nofollow">@test</a></p>',
         object_uri="https://remote.test/status/12345",
+        url="https://remote.test/status/12345",
+        state=PostStates.fanned_out,
     )
     post.mentions.add(identity)
     response = api_client.get(
@@ -152,6 +154,8 @@ def test_question_format(api_client, remote_identity):
         author=remote_identity,
         content="<p>Test Question</p>",
         object_uri="https://remote.test/status/123456",
+        url="https://remote.test/status/123456",
+        state=PostStates.fanned_out,
         type=Post.Types.question,
         type_data={
             "type": "Question",

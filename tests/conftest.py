@@ -61,6 +61,7 @@ def _test_settings(settings):
     # We use `StaticFilesStorage` instead of `ManifestStaticFilesStorage` in tests
     # since want stable filenames (`css/styles.css`) instead of hashed (`css/styles.55e7cbb9ba48.css`)
     settings.STORAGES = {
+        **settings.STORAGES,
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
         },
@@ -91,13 +92,11 @@ def client_with_user(client, user):
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def user() -> User:
     return User.objects.create(email="test@example.com")
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def domain() -> Domain:
     return Domain.objects.create(
         domain="example.com", local=True, public=True, state="updated"
@@ -105,7 +104,6 @@ def domain() -> Domain:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def domain2() -> Domain:
     return Domain.objects.create(
         domain="example2.com", local=True, public=True, state="updated"
@@ -113,7 +111,6 @@ def domain2() -> Domain:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def identity(user, domain, keypair) -> Identity:
     """
     Creates a basic test identity with a user and domain.
@@ -133,7 +130,6 @@ def identity(user, domain, keypair) -> Identity:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def identity2(user, domain2) -> Identity:
     """
     Creates a basic test identity with a user and domain.
@@ -167,7 +163,6 @@ def other_identity(user, domain) -> Identity:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def remote_identity() -> Identity:
     """
     Creates a basic remote test identity with a domain.
@@ -187,7 +182,6 @@ def remote_identity() -> Identity:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def remote_identity2() -> Identity:
     """
     Creates a basic remote test identity with a domain.
@@ -204,7 +198,6 @@ def remote_identity2() -> Identity:
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def api_token(identity) -> Token:
     """
     Creates an API application, an identity, and a token for that identity
