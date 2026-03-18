@@ -79,10 +79,15 @@ class TimelineService:
         return self._exclude_blocked(queryset)
 
     def federated(self) -> models.QuerySet[Post]:
+        # Exclude local_only posts: those are meant for the local instance
+        # only and must not appear in the global/federated public timeline.
         queryset = (
             PostService.queryset()
             .public()
-            .filter(author__restriction=Identity.Restriction.none)
+            .filter(
+                author__restriction=Identity.Restriction.none,
+                visibility=Post.Visibilities.public,
+            )
             .order_by("-id")
         )
         return self._exclude_blocked(queryset)
