@@ -117,6 +117,14 @@ class Hashtag(StatorModel):
         admin_disable = "{admin_edit}disable/"
         timeline = "/tags/{self.hashtag}/"
 
+        def get_scheme(self, url):
+            return "https"
+
+        def get_hostname(self, url):
+            from django.conf import settings
+
+            return settings.MAIN_DOMAIN
+
     hashtag_regex = re.compile(r"\B#([a-zA-Z0-9(_)]+\b)(?!;)")
 
     def save(self, *args, **kwargs):

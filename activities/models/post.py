@@ -254,13 +254,15 @@ class PostQuerySet(models.QuerySet):
         return query
 
     def tagged_with(self, hashtag: str | Hashtag):
+        # JSONField array containment requires the RHS to be a list;
+        # passing a plain scalar always returns no matches in PostgreSQL.
         if isinstance(hashtag, str):
-            tag_q = models.Q(hashtags__contains=hashtag)
+            tag_q = models.Q(hashtags__contains=[hashtag])
         else:
-            tag_q = models.Q(hashtags__contains=hashtag.hashtag)
+            tag_q = models.Q(hashtags__contains=[hashtag.hashtag])
             if hashtag.aliases:
                 for alias in hashtag.aliases:
-                    tag_q |= models.Q(hashtags__contains=alias)
+                    tag_q |= models.Q(hashtags__contains=[alias])
         return self.filter(tag_q)
 
 
@@ -1002,7 +1004,13 @@ class Post(StatorModel):
             # Mentions and hashtags
             post.hashtags = []
             for tag in get_list(data, "tag"):
-                tag_type = tag["type"].lower()
+                if not isinstance(tag, dict):
+                    # Some implementations send plain strings – skip them
+                    continue
+                raw_type = tag.get("type")
+                if not isinstance(raw_type, str):
+                    continue
+                tag_type = raw_type.lower()
                 if tag_type == "mention":
                     mention_identity = Identity.by_actor_uri(tag["href"], create=True)
                     post.mentions.add(mention_identity)

@@ -1,8 +1,12 @@
+import logging
+
 from django.db import models
 from pyld.jsonld import JsonLdError
 
 from core.exceptions import ActivityPubError
 from stator.models import State, StateField, StateGraph, StatorModel
+
+logger = logging.getLogger(__name__)
 
 
 class InboxMessageStates(StateGraph):
@@ -159,6 +163,12 @@ class InboxMessageStates(StateGraph):
                     return cls.errored
             return cls.processed
         except (ActivityPubError, JsonLdError):
+            return cls.errored
+        except Exception:
+            # Broad catch to prevent unhandled errors from causing the
+            # InboxMessage to become stuck retrying indefinitely.  The
+            # state machine will schedule a retry after try_interval.
+            logger.exception("Unexpected error processing InboxMessage %s", instance.pk)
             return cls.errored
 
 
