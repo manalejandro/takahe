@@ -289,6 +289,9 @@ class Identity(StatorModel):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     fetched = models.DateTimeField(null=True, blank=True)
+    # Set when outbox/pins are fetched on-demand (account detail view).
+    # Null means the profile posts have never been imported for this account.
+    outbox_fetched = models.DateTimeField(null=True, blank=True)
     deleted = models.DateTimeField(null=True, blank=True)
 
     objects = IdentityManager()
@@ -1153,24 +1156,13 @@ class Identity(StatorModel):
                 with transaction.atomic():
                     self.save()
 
-        # Fetch pinned posts in a followup task
-        if self.featured_collection_uri:
-            InboxMessage.create_internal(
-                {
-                    "type": "SyncPins",
-                    "identity": self.pk,
-                }
-            )
-
-        # Fetch recent posts from the outbox in a followup task, but only
-        # on first discovery to avoid re-downloading posts on every refresh.
-        if self.outbox_uri and is_first_fetch:
-            InboxMessage.create_internal(
-                {
-                    "type": "FetchOutbox",
-                    "identity": self.pk,
-                }
-            )
+        # NOTE: Outbox posts (FetchOutbox) and pinned posts (SyncPins) are
+        # intentionally NOT scheduled here.  Importing historical posts from a
+        # remote account on every federation discovery wastes storage and
+        # pollutes timelines with old posts whose Snowflake IDs encode their
+        # original publication dates.  Both tasks are instead triggered lazily
+        # from the account-detail API endpoint (GET /api/v1/accounts/:id) so
+        # that posts are only imported when a user explicitly visits the profile.
 
         return True
 

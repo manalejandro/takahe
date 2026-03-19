@@ -3,6 +3,7 @@ from typing import Any
 from django.core.files import File
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from hatchway import ApiResponse, QueryOrBody, api_view
 
 from activities.models import Post, PostInteraction, PostInteractionStates
@@ -12,6 +13,7 @@ from api.decorators import scope_required
 from api.pagination import MastodonPaginator, PaginatingApiResponse, PaginationResult
 from core.models import Config
 from users.models import Identity, IdentityStates
+from users.models.inbox_message import InboxMessage
 from users.services import IdentityService
 from users.shortcuts import by_handle_or_404
 
@@ -168,6 +170,29 @@ def account(request, id: str) -> schemas.Account:
         Identity.objects.exclude(restriction=Identity.Restriction.blocked),
         pk=id,
     )
+    # Lazily import a remote account's recent outbox posts and pinned posts the
+    # first time a user explicitly visits their profile.  This avoids importing
+    # historical posts during normal federation activity (e.g. when a boost or
+    # mention first mentions the account), which would waste storage and pollute
+    # timelines with old posts whose Snowflake IDs encode their original
+    # publication dates rather than local receipt times.
+    if not identity.local and identity.outbox_fetched is None:
+        if identity.outbox_uri:
+            InboxMessage.create_internal(
+                {
+                    "type": "FetchOutbox",
+                    "identity": identity.pk,
+                }
+            )
+        if identity.featured_collection_uri:
+            InboxMessage.create_internal(
+                {
+                    "type": "SyncPins",
+                    "identity": identity.pk,
+                }
+            )
+        # Mark as fetched so repeated profile visits don't re-queue the tasks.
+        Identity.objects.filter(pk=identity.pk).update(outbox_fetched=timezone.now())
     return schemas.Account.from_identity(identity)
 
 
