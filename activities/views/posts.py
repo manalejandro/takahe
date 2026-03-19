@@ -1,3 +1,4 @@
+from django.contrib.auth.views import redirect_to_login
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.decorators import method_decorator
@@ -39,6 +40,9 @@ class Individual(TemplateView):
             # Return post JSON
             return self.serve_object()
         else:
+            # Require authentication for HTML views
+            if not request.user.is_authenticated:
+                return redirect_to_login(request.get_full_path())
             # Show normal page
             return super().get(request)
 

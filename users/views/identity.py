@@ -2,6 +2,7 @@ import string
 
 from django import forms
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
 from django.contrib.syndication.views import Feed
 from django.core import validators
 from django.http import Http404, JsonResponse
@@ -57,6 +58,9 @@ class ViewIdentity(ListView):
             # Return actor info
             return self.serve_actor(self.identity)
         else:
+            # Require authentication for HTML views
+            if not request.user.is_authenticated:
+                return redirect_to_login(request.get_full_path())
             # Show normal page
             return super().get(request, identity=self.identity)
 
@@ -227,6 +231,8 @@ class IdentityFollows(ListView):
             handle,
             local=False,
         )
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
         if not Config.load_identity(self.identity).visible_follows:
             raise Http404("Hidden follows")
         return super().get(request, identity=self.identity)
