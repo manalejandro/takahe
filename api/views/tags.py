@@ -9,6 +9,7 @@ from api.pagination import MastodonPaginator, PaginatingApiResponse, PaginationR
 from users.models import HashtagFollow
 
 
+@scope_required("read")
 @api_view.get
 def hashtag(request: HttpRequest, hashtag: str) -> schemas.Tag:
     tag = get_object_or_404(

@@ -26,6 +26,7 @@ class Home(TemplateView):
         }
 
 
+@method_decorator(login_required, name="dispatch")
 @method_decorator(
     cache_page("cache_timeout_page_timeline", public_only=True), name="dispatch"
 )
