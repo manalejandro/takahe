@@ -7,6 +7,7 @@ from hatchway import api_view
 
 from activities.models import Post
 from api import schemas
+from api.decorators import scope_required
 from core.models import Config
 from takahe import __version__
 from users.models import Domain, Identity
@@ -144,6 +145,7 @@ def instance_info_v2(request) -> dict:
     }
 
 
+@scope_required("read")
 @api_view.get
 def peers(request) -> list[str]:
     return list(
@@ -153,6 +155,7 @@ def peers(request) -> list[str]:
     )
 
 
+@scope_required("read")
 @api_view.get
 def activity(request) -> list:
     """

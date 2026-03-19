@@ -153,6 +153,7 @@ def accounts_search(
     return [schemas.Account.from_identity(i) for i in search_result]
 
 
+@scope_required("read:accounts")
 @api_view.get
 def lookup(request: HttpRequest, acct: str) -> schemas.Account:
     """
@@ -328,6 +329,7 @@ def account_unmute(request, id: str) -> schemas.Relationship:
     return schemas.Relationship.from_identity_pair(identity, request.identity)
 
 
+@scope_required("read:accounts")
 @api_view.get
 def account_following(
     request: HttpRequest,
@@ -361,6 +363,7 @@ def account_following(
     )
 
 
+@scope_required("read:accounts")
 @api_view.get
 def account_followers(
     request: HttpRequest,
@@ -394,6 +397,7 @@ def account_followers(
     )
 
 
+@scope_required("read:accounts")
 @api_view.get
 def account_featured_tags(request: HttpRequest, id: str) -> list[schemas.FeaturedTag]:
     # Not implemented yet

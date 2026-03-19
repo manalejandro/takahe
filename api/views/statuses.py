@@ -230,6 +230,7 @@ def unfavourite_status(request, id: str) -> schemas.Status:
     )
 
 
+@scope_required("read:statuses")
 @api_view.get
 def favourited_by(
     request: HttpRequest,
@@ -272,6 +273,7 @@ def favourited_by(
     )
 
 
+@scope_required("read:statuses")
 @api_view.get
 def reblogged_by(
     request: HttpRequest,

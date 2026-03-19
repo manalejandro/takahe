@@ -57,6 +57,7 @@ def home(
     )
 
 
+@scope_required("read:statuses")
 @api_view.get
 def public(
     request: HttpRequest,
@@ -68,7 +69,7 @@ def public(
     min_id: str | None = None,
     limit: int = 20,
 ) -> ApiResponse[list[schemas.Status]]:
-    if not request.identity and not Config.system.public_timeline:
+    if not Config.system.public_timeline:
         raise ApiError(error="public timeline is disabled", status=422)
 
     limit = min(limit, 40)
