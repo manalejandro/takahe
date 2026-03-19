@@ -69,9 +69,6 @@ def public(
     min_id: str | None = None,
     limit: int = 20,
 ) -> ApiResponse[list[schemas.Status]]:
-    if not Config.system.public_timeline:
-        raise ApiError(error="public timeline is disabled", status=422)
-
     limit = min(limit, 40)
     svc = TimelineService(request.identity)
 
