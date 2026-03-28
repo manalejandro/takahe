@@ -99,29 +99,20 @@ def public(
     # comparable "local receipt time" reference for all items.
     reverse = False
     if max_id:
-        try:
-            max_dt = datetime.datetime.fromtimestamp(
-                Snowflake.get_time(int(max_id)), tz=datetime.timezone.utc
-            )
-        except (ValueError, TypeError):
+        max_dt = _cursor_to_created_dt(max_id)
+        if max_dt is None:
             raise ApiError(error="invalid max_id", status=422)
         post_qs = post_qs.filter(created__lt=max_dt)
         boost_qs = boost_qs.filter(created__lt=max_dt)
     if since_id:
-        try:
-            since_dt = datetime.datetime.fromtimestamp(
-                Snowflake.get_time(int(since_id)), tz=datetime.timezone.utc
-            )
-        except (ValueError, TypeError):
+        since_dt = _cursor_to_created_dt(since_id)
+        if since_dt is None:
             raise ApiError(error="invalid since_id", status=422)
         post_qs = post_qs.filter(created__gt=since_dt)
         boost_qs = boost_qs.filter(created__gt=since_dt)
     if min_id:
-        try:
-            min_dt = datetime.datetime.fromtimestamp(
-                Snowflake.get_time(int(min_id)), tz=datetime.timezone.utc
-            )
-        except (ValueError, TypeError):
+        min_dt = _cursor_to_created_dt(min_id)
+        if min_dt is None:
             raise ApiError(error="invalid min_id", status=422)
         post_qs = post_qs.filter(created__gt=min_dt)
         boost_qs = boost_qs.filter(created__gt=min_dt)
@@ -188,6 +179,52 @@ def public(
         request=request,
         include_params=["limit", "local", "remote", "only_media"],
     )
+
+
+def _cursor_to_created_dt(cursor: str) -> datetime.datetime | None:
+    """
+    Resolve a Mastodon pagination cursor (max_id / since_id / min_id) to the
+    **local-receipt** datetime of the item it references.
+
+    Clients pass Status.id as the cursor.  For posts that value equals Post.id
+    — a Snowflake that encodes the *original publication date* for remote
+    posts, not the local insertion time.  The federated timeline sorts and
+    filters by Post.created (local receipt time), so decoding Post.id with
+    Snowflake.get_time() gives the wrong epoch (e.g. 2022) and the filter
+    `created__lt=2022` returns nothing, breaking pagination.
+
+    Resolution order:
+    1. Look up the Post row — if found, return Post.created.
+    2. Look up the PostInteraction row — if found, return PostInteraction.created.
+    3. Fall back to Snowflake.get_time() (handles synthetic _dt_to_cursor IDs
+       and any cursor that doesn't resolve to a DB row).
+    """
+    try:
+        cursor_int = int(cursor)
+    except (ValueError, TypeError):
+        return None
+
+    # Primary key lookup — O(1), indexed.
+    created = (
+        Post.objects.filter(id=cursor_int).values_list("created", flat=True).first()
+    )
+    if created is not None:
+        return created
+
+    created = (
+        PostInteraction.objects.filter(id=cursor_int)
+        .values_list("created", flat=True)
+        .first()
+    )
+    if created is not None:
+        return created
+
+    # Synthetic cursor from _dt_to_cursor or unknown ID — decode Snowflake.
+    try:
+        ts = Snowflake.get_time(cursor_int)
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+    except ValueError:
+        return None
 
 
 def _dt_to_cursor(dt: datetime.datetime) -> str:
