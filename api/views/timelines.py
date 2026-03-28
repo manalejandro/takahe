@@ -50,11 +50,8 @@ def home(
         limit=limit,
         home=True,
     )
-    return PaginatingApiResponse(
-        schemas.Status.map_from_timeline_event(pager.results, request.identity),
-        request=request,
-        include_params=["limit"],
-    )
+    statuses = schemas.Status.map_from_timeline_event(pager.results, request.identity)
+    return _home_paginating_response(statuses, events=pager.results, request=request)
 
 
 @scope_required("read:statuses")
@@ -193,6 +190,62 @@ def public(
     )
 
 
+def _dt_to_cursor(dt: datetime.datetime) -> str:
+    """
+    Build a deterministic Snowflake-shaped cursor from a local-receipt datetime.
+    Random sequence bits are zeroed so the value is stable across requests.
+    """
+    ts_ms = max(0, int((dt.timestamp() - Snowflake.EPOCH) * 1000))
+    return str((ts_ms << 22) | Snowflake.TYPE_POST)
+
+
+def _home_paginating_response(
+    statuses: list,
+    events: list,
+    request,
+) -> PaginatingApiResponse:
+    """
+    Build a PaginatingApiResponse for the home timeline using cursors derived
+    from each TimelineEvent's subject_created annotation (the local-receipt
+    time of the underlying Post or PostInteraction) rather than from
+    Status.id (= Post.id, which encodes the ORIGINAL PUBLICATION DATE for
+    remote posts).
+
+    Without this override, bulk-fetching an account's old outbox posts causes
+    all of them to arrive with subject_created ≈ now while their Post.id
+    encodes an ancient date.  PaginatingApiResponse would emit a max_id cursor
+    equal to that ancient Post.id; when the client follows it the paginator
+    decodes it to the ancient date and filters subject_created < ancient_date,
+    which matches nothing recent and breaks the timeline.
+    """
+    response = PaginatingApiResponse(statuses, request=request, include_params=["limit"])
+    if not events:
+        return response
+
+    # events are annotated TimelineEvent objects — subject_created is a datetime
+    # set by the MastodonPaginator home-path annotation.
+    newest_dt = getattr(events[0], "subject_created", None)
+    oldest_dt = getattr(events[-1], "subject_created", None)
+    if newest_dt is None or oldest_dt is None:
+        return response
+
+    params = PaginatingApiResponse.filter_params(request, ["limit"])
+    base_url = request.build_absolute_uri(request.path)
+
+    next_params = dict(params)
+    next_params["max_id"] = _dt_to_cursor(oldest_dt)
+
+    prev_params = dict(params)
+    prev_params["min_id"] = _dt_to_cursor(newest_dt)
+
+    response.headers["link"] = (
+        f'<{base_url}?{urllib.parse.urlencode(next_params)}>; rel="next"'
+        ", "
+        f'<{base_url}?{urllib.parse.urlencode(prev_params)}>; rel="prev"'
+    )
+    return response
+
+
 def _public_paginating_response(
     statuses: list,
     combined: list,
@@ -220,12 +273,6 @@ def _public_paginating_response(
     # max_id / min_id requests decode to the correct local-receipt boundary.
     first_dt = combined[0][0]   # most recently created item (newest)
     last_dt = combined[-1][0]   # oldest item on this page
-
-    # Generate deterministic cursors: strip the random bits from the Snowflake
-    # by rebuilding from the millisecond timestamp component only (rand_seq=0).
-    def _dt_to_cursor(dt: datetime.datetime) -> str:
-        ts_ms = max(0, int((dt.timestamp() - Snowflake.EPOCH) * 1000))
-        return str((ts_ms << 22) | Snowflake.TYPE_POST)
 
     params = PaginatingApiResponse.filter_params(request, include_params)
     base_url = request.build_absolute_uri(request.path)
