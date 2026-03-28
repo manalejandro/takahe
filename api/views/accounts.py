@@ -227,7 +227,7 @@ def account_statuses(
             "author__outbound_follows",
             "author__posts",
         )
-        .order_by("-created")
+        .order_by("-id")
     )
     if pinned:
         queryset = queryset.filter(
