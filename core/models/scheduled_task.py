@@ -35,13 +35,20 @@ class ScheduledTaskStates(StateGraph):
         # Skip if task is disabled
         if not instance.enabled:
             return None
-            
+
         now = timezone.now()
+
+        # Lazy-initialize next_run. Data migrations use apps.get_model() which
+        # returns the historical model and cannot call custom save() overrides,
+        # so tasks created by migrations may have next_run=NULL.
+        if not instance.next_run:
+            instance.calculate_next_run()
+            instance.save(update_fields=["next_run"])
 
         # Check if it's time to run
         if instance.next_run and instance.next_run <= now:
             return cls.running
-        
+
         return None
 
     @classmethod

@@ -450,7 +450,7 @@ def conversations(
     since_id: str | None = None,
     min_id: str | None = None,
     limit: int = 20,
-) -> list[schemas.Status]:
+) -> list[schemas.Conversation]:
     # We don't implement this yet
     return []
 

@@ -100,11 +100,7 @@ async def event_stream_generator(
                     queryset = queryset.filter(id__gt=int(last_event_id))
                 
                 events = await sync_to_async(list)(queryset.order_by("id")[:20])
-                if events:
-                    # Wait briefly so messages arriving close together are batched
-                    await asyncio.sleep(1)
-                    events = await sync_to_async(list)(queryset.order_by("id")[:20])
-                
+
                 for event in events:
                     last_event_id = str(event.id)
                     
@@ -134,11 +130,7 @@ async def event_stream_generator(
                     queryset = queryset.filter(id__gt=int(last_event_id))
                 
                 posts = await sync_to_async(list)(queryset.order_by("id")[:20])
-                if posts:
-                    # Wait briefly so messages arriving close together are batched
-                    await asyncio.sleep(1)
-                    posts = await sync_to_async(list)(queryset.order_by("id")[:20])
-                
+
                 for post in posts:
                     last_event_id = str(post.id)
                     try:
