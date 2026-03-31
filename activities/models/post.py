@@ -49,7 +49,6 @@ logger = logging.getLogger(__name__)
 
 
 class PostStates(StateGraph):
-    scheduled = State(try_interval=60)  # Check every minute if it's time to publish
     new = State(try_interval=300)
     fanned_out = State(externally_progressed=True)
     deleted = State(try_interval=300)
@@ -58,7 +57,6 @@ class PostStates(StateGraph):
     edited = State(try_interval=300)
     edited_fanned_out = State(externally_progressed=True)
 
-    scheduled.transitions_to(new)
     new.transitions_to(fanned_out)
     fanned_out.transitions_to(deleted_fanned_out)
     fanned_out.transitions_to(deleted)
@@ -68,26 +66,6 @@ class PostStates(StateGraph):
     edited.transitions_to(edited_fanned_out)
     edited_fanned_out.transitions_to(edited)
     edited_fanned_out.transitions_to(deleted)
-
-    @classmethod
-    def handle_scheduled(cls, instance: "Post"):
-        """
-        Checks if a scheduled post should be published now.
-        Remote posts or local posts without a scheduled_at should be
-        immediately advanced to new (they ended up here due to the state
-        default; they are not actually scheduled posts).
-        """
-        if not instance.scheduled_at:
-            # Not a scheduled post — move it straight to new
-            return cls.new
-        if timezone.now() >= instance.scheduled_at:
-            # It's time to publish
-            instance.published = instance.scheduled_at
-            instance.scheduled_at = None
-            instance.save()
-            return cls.new
-        # Not yet time
-        return None
 
     @classmethod
     def targets_fan_out(cls, post: "Post", type_: str) -> None:
@@ -104,13 +82,6 @@ class PostStates(StateGraph):
         """
         Creates all needed fan-out objects for a new Post.
         """
-        # Remote stub posts are created by get_or_create (race prevention) with
-        # url=None and content="" before the by_ap update block runs.  If the
-        # update failed (e.g. TryAgainLater for author/emoji) the stub is still
-        # in "new" state – don't fan it out until it's fully populated.
-        if not instance.local and instance.url is None:
-            return None  # retry after try_interval; InboxMessage will fill it
-
         # Only fan out if the post was published in the last day or it's local
         # (we don't want to fan out anything older that that which is remote)
         if instance.local or (timezone.now() - instance.published) < datetime.timedelta(
@@ -177,21 +148,13 @@ class PostQuerySet(models.QuerySet):
             state__in=[
                 PostStates.deleted,
                 PostStates.deleted_fanned_out,
-                PostStates.scheduled,
             ]
-        ).exclude(
-            # Exclude remote stubs that have not yet been fully populated
-            local=False,
-            url__isnull=True,
         )
         return query
 
     def public(self, include_replies: bool = False):
         # Allow up to 5 minutes of clock skew from remote servers, but keep
-        # far-future posts out of the timeline: their Snowflake IDs would be
-        # enormous and would cause clients using since_id to never see new posts.
-        # Local scheduled posts are already excluded by the 'scheduled' state
-        # in not_hidden(), so this filter only meaningfully affects remote posts.
+        # far-future posts out of the timeline.
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
@@ -204,7 +167,6 @@ class PostQuerySet(models.QuerySet):
         return query
 
     def local_public(self, include_replies: bool = False):
-        # Same 5-minute grace period as public().
         query = self.filter(
             visibility__in=[
                 Post.Visibilities.public,
@@ -548,7 +510,6 @@ class Post(StatorModel):
         reply_to: Optional["Post"] = None,
         attachments: list | None = None,
         question: dict | None = None,
-        scheduled_at: datetime.datetime | None = None,
     ) -> "Post":
         with transaction.atomic():
             # Find mentions in this post
@@ -567,8 +528,6 @@ class Post(StatorModel):
                 sorted([tag[: Hashtag.MAXIMUM_LENGTH] for tag in parser.hashtags])
                 or None
             )
-            # Determine initial state
-            initial_state = PostStates.scheduled if scheduled_at else PostStates.new
             # Make the Post object
             post = cls.objects.create(
                 author=author,
@@ -579,8 +538,6 @@ class Post(StatorModel):
                 visibility=visibility,
                 hashtags=hashtags,
                 in_reply_to=reply_to.object_uri if reply_to else None,
-                scheduled_at=scheduled_at,
-                state=initial_state,
             )
             post.object_uri = post.urls.object_uri
             post.url = post.absolute_object_uri()
@@ -592,9 +549,8 @@ class Post(StatorModel):
                 post.type = question["type"]
                 post.type_data = PostTypeData(__root__=question).__root__
             post.save()
-            # For scheduled posts, don't recalculate parent stats yet
-            # Recalculate parent stats for replies (only for non-scheduled posts)
-            if reply_to and not scheduled_at:
+            # Recalculate parent stats for replies
+            if reply_to:
                 reply_to.calculate_stats()
         return post
 
@@ -943,36 +899,19 @@ class Post(StatorModel):
                 # If the post is from a blocked domain, stop and drop
                 if author.domain.recursively_blocked():
                     raise cls.DoesNotExist("Post is from a blocked domain")
-                # Use INSERT ... ON CONFLICT DO NOTHING via bulk_create so that
-                # concurrent workers racing on the same object_uri are handled
-                # silently at the DB level.  Unlike get_or_create (which uses
-                # savepoints that PostgreSQL always logs as ERROR-level even
-                # when caught by the application), bulk_create(ignore_conflicts)
-                # generates zero error log spam.
-                _published = parse_ld_date(data.get("published"))
-                _post_id = (
-                    Snowflake.generate_from_datetime(_published, Snowflake.TYPE_POST)
-                    if _published
-                    else Snowflake.generate_post()
+                # Use get_or_create to handle concurrent workers racing on the
+                # same object_uri without raising IntegrityError.
+                post, created = cls.objects.select_related(
+                    "author__domain"
+                ).get_or_create(
+                    object_uri=data["id"],
+                    defaults={
+                        "author": author,
+                        "content": "",
+                        "local": False,
+                        "type": data["type"],
+                    },
                 )
-                cls.objects.bulk_create(
-                    [
-                        cls(
-                            id=_post_id,
-                            object_uri=data["id"],
-                            author=author,
-                            content="",
-                            local=False,
-                            type=data["type"],
-                            state=PostStates.new,
-                        )
-                    ],
-                    ignore_conflicts=True,
-                )
-                post = cls.objects.select_related("author__domain").get(
-                    object_uri=data["id"]
-                )
-                created = post.url is None  # True if post is still a stub
             else:
                 raise cls.DoesNotExist(f"No post with ID {data['id']}", data)
         if update or created:
@@ -1082,11 +1021,6 @@ class Post(StatorModel):
                 # if we don't commit the transaction here, there's a chance
                 # the parent fetch below goes into an infinite loop
                 post.save()
-                # The stub guard in handle_new may have pushed state_next_attempt
-                # into the future.  Reset it so stator fans out the now-populated
-                # post without waiting the full try_interval.
-                if post.state == PostStates.new:
-                    Post.objects.filter(pk=post.pk).update(state_next_attempt=None)
 
             # Potentially schedule a fetch of the reply parent, and recalculate
             # its stats if it's here already.

@@ -45,7 +45,6 @@ class PostStatusSchema(Schema):
     spoiler_text: str | None = None
     visibility: Literal["public", "unlisted", "private", "direct"] = "public"
     language: str | None = None
-    scheduled_at: str | None = None
     media_ids: list[str] = []
     poll: PostPollSchema | None = None
 
@@ -80,7 +79,7 @@ def post_for_id(request: HttpRequest, id: str) -> Post:
 
 @scope_required("write:statuses")
 @api_view.post
-def post_status(request, details: PostStatusSchema) -> schemas.Status | schemas.ScheduledStatus:
+def post_status(request, details: PostStatusSchema) -> schemas.Status:
     # Check text length
     if details.status and len(details.status) > Config.system.post_length:
         raise ApiError(400, "Status is too long")
@@ -101,19 +100,6 @@ def post_status(request, details: PostStatusSchema) -> schemas.Status | schemas.
             reply_post = Post.objects.get(pk=details.in_reply_to_id)
         except Post.DoesNotExist:
             pass
-    
-    # Parse scheduled_at if provided
-    scheduled_at = None
-    if details.scheduled_at:
-        try:
-            from core.ld import parse_ld_date
-            scheduled_at = parse_ld_date(details.scheduled_at)
-            # Validate that scheduled_at is in the future
-            if scheduled_at <= timezone.now():
-                raise ApiError(422, "Scheduled time must be in the future")
-        except (ValueError, TypeError) as e:
-            raise ApiError(422, f"Invalid scheduled_at format: {e}")
-    
     post = Post.create_local(
         author=request.identity,
         content=details.status or "",
@@ -123,13 +109,7 @@ def post_status(request, details: PostStatusSchema) -> schemas.Status | schemas.
         reply_to=reply_post,
         attachments=attachments,
         question=details.poll.dict() if details.poll else None,
-        scheduled_at=scheduled_at,
     )
-    
-    # If it's scheduled, return a ScheduledStatus
-    if scheduled_at:
-        return schemas.ScheduledStatus.from_post(post)
-    
     # Add their own timeline event for immediate visibility
     TimelineEvent.add_post(request.identity, post)
     return schemas.Status.from_post(post, identity=request.identity)
