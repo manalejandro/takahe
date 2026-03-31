@@ -62,12 +62,19 @@ async def streaming_websocket(scope, receive, send):
     # Parse query string
     query_string = scope.get("query_string", b"").decode("utf-8")
     params = parse_qs(query_string)
-    
+
     # Get parameters
     stream = params.get("stream", [None])[0]
     tag = params.get("tag", [None])[0]
     list_id = params.get("list", [None])[0]
     access_token = params.get("access_token", [None])[0]
+
+    # Also check Authorization header (Bearer token) if not in query params
+    if not access_token:
+        headers = dict(scope.get("headers", []))
+        auth_header = headers.get(b"authorization", b"").decode("utf-8")
+        if auth_header.startswith("Bearer "):
+            access_token = auth_header[7:]
     
     # Validate stream parameter
     if not stream:

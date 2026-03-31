@@ -211,18 +211,36 @@ class ScheduledTask(StatorModel):
 
         elif self.schedule_type == self.ScheduleType.WEEKLY:
             # Run at specific time on specific weekday
-            days_ahead = self.weekday - now.weekday()
-            if days_ahead <= 0:  # Target day already passed this week
-                days_ahead += 7
-            next_run = now + datetime.timedelta(days=days_ahead)
-            if self.run_time:
-                next_run = next_run.replace(
-                    hour=self.run_time.hour,
-                    minute=self.run_time.minute,
-                    second=0,
-                    microsecond=0,
-                )
-            self.next_run = next_run
+            if self.weekday is None:
+                # No weekday configured, fall back to 7-day interval
+                self.next_run = now + datetime.timedelta(weeks=1)
+            else:
+                days_ahead = self.weekday - now.weekday()
+                if days_ahead < 0:  # Target day already passed this week
+                    days_ahead += 7
+                elif days_ahead == 0:
+                    # Today is the target weekday — check if run_time has passed
+                    if self.run_time:
+                        scheduled_today = now.replace(
+                            hour=self.run_time.hour,
+                            minute=self.run_time.minute,
+                            second=0,
+                            microsecond=0,
+                        )
+                        if scheduled_today <= now:
+                            days_ahead = 7
+                    # else: no run_time, treat as already passed → next week
+                    else:
+                        days_ahead = 7
+                next_run = now + datetime.timedelta(days=days_ahead)
+                if self.run_time:
+                    next_run = next_run.replace(
+                        hour=self.run_time.hour,
+                        minute=self.run_time.minute,
+                        second=0,
+                        microsecond=0,
+                    )
+                self.next_run = next_run
 
         elif self.schedule_type == self.ScheduleType.CUSTOM:
             self.next_run = now + datetime.timedelta(seconds=self.interval_seconds)
