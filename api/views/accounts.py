@@ -12,7 +12,7 @@ from api import schemas
 from api.decorators import scope_required
 from api.pagination import MastodonPaginator, PaginatingApiResponse, PaginationResult
 from core.models import Config
-from users.models import Identity, IdentityStates
+from users.models import Bookmark, Identity, IdentityStates
 from users.models.inbox_message import InboxMessage
 from users.services import IdentityService
 from users.shortcuts import by_handle_or_404
@@ -215,7 +215,8 @@ def account_statuses(
     identity = get_object_or_404(
         Identity.objects.exclude(restriction=Identity.Restriction.blocked), pk=id
     )
-    queryset = (
+    limit = min(limit, 40)
+    post_qs = (
         identity.posts.not_hidden()
         .unlisted(include_replies=not exclude_replies)
         .select_related("author", "author__domain")
@@ -230,35 +231,142 @@ def account_statuses(
         .order_by("-id")
     )
     if pinned:
-        queryset = queryset.filter(
+        post_qs = post_qs.filter(
             interactions__type=PostInteraction.Types.pin,
             interactions__state__in=PostInteractionStates.group_active(),
         )
     if only_media:
-        queryset = queryset.filter(attachments__pk__isnull=False)
+        post_qs = post_qs.filter(attachments__pk__isnull=False)
     if tagged:
-        queryset = queryset.tagged_with(tagged)
-    # Get user posts with pagination
-    paginator = MastodonPaginator()
-    pager: PaginationResult[Post] = paginator.paginate(
-        queryset,
-        min_id=min_id,
-        max_id=max_id,
-        since_id=since_id,
-        limit=limit,
+        post_qs = post_qs.tagged_with(tagged)
+
+    # For simple cases (pinned, only_media, tagged, exclude_reblogs) use the
+    # original single-queryset path for simplicity.
+    use_simple = pinned or only_media or tagged or exclude_reblogs
+
+    if use_simple:
+        paginator = MastodonPaginator()
+        pager: PaginationResult[Post] = paginator.paginate(
+            post_qs,
+            min_id=min_id,
+            max_id=max_id,
+            since_id=since_id,
+            limit=limit,
+        )
+        return PaginatingApiResponse(
+            schemas.Status.map_from_post(pager.results, request.identity),
+            request=request,
+            include_params=[
+                "limit",
+                "id",
+                "exclude_reblogs",
+                "exclude_replies",
+                "only_media",
+                "pinned",
+                "tagged",
+            ],
+        )
+
+    # When reblogs are included, merge posts and boosts sorted by Snowflake ID
+    # (both Post.id and PostInteraction.id use the same Snowflake generator so
+    # they are directly comparable as integers).
+    boost_qs = (
+        PostInteraction.objects.filter(
+            identity=identity,
+            type=PostInteraction.Types.boost,
+            state__in=PostInteractionStates.group_active(),
+        )
+        .select_related(
+            "identity",
+            "identity__domain",
+            "post",
+            "post__author",
+            "post__author__domain",
+        )
+        .prefetch_related(
+            "post__attachments",
+            "post__mentions__domain",
+            "post__emojis",
+        )
+        .order_by("-id")
     )
+
+    # Apply cursor filters to both querysets
+    if max_id:
+        try:
+            max_id_int = int(max_id)
+            post_qs = post_qs.filter(id__lt=max_id_int)
+            boost_qs = boost_qs.filter(id__lt=max_id_int)
+        except (ValueError, TypeError):
+            pass
+    if since_id:
+        try:
+            since_id_int = int(since_id)
+            post_qs = post_qs.filter(id__gt=since_id_int)
+            boost_qs = boost_qs.filter(id__gt=since_id_int)
+        except (ValueError, TypeError):
+            pass
+    if min_id:
+        try:
+            min_id_int = int(min_id)
+            post_qs = post_qs.filter(id__gt=min_id_int)
+            boost_qs = boost_qs.filter(id__gt=min_id_int)
+            post_qs = post_qs.order_by("id")
+            boost_qs = boost_qs.order_by("id")
+        except (ValueError, TypeError):
+            pass
+
+    posts = list(post_qs[:limit])
+    boosts = list(boost_qs[:limit])
+
+    reverse = bool(min_id)
+    combined = sorted(
+        [("post", p.id, p) for p in posts] + [("boost", b.id, b) for b in boosts],
+        key=lambda x: x[1],
+        reverse=not reverse,
+    )[:limit]
+    if reverse:
+        combined.reverse()
+
+    if not combined:
+        return PaginatingApiResponse(
+            [],
+            request=request,
+            include_params=["limit", "id", "exclude_reblogs", "exclude_replies"],
+        )
+
+    all_posts = [item for _, _, item in combined if isinstance(item, Post)]
+    all_boost_posts = [item.post for _, _, item in combined if isinstance(item, PostInteraction)]
+    interactions = PostInteraction.get_post_interactions(
+        all_posts + all_boost_posts, request.identity
+    )
+
+    bookmarks = Bookmark.for_identity(request.identity, all_posts)
+    statuses = []
+    for item_type, _, item in combined:
+        if item_type == "post":
+            statuses.append(
+                schemas.Status.from_post(
+                    item,
+                    interactions=interactions,
+                    bookmarks=bookmarks,
+                    identity=request.identity,
+                )
+            )
+        else:
+            statuses.append(
+                schemas.Status(
+                    **item.to_mastodon_status_json(
+                        interactions=interactions,
+                        identity=request.identity,
+                    )
+                )
+            )
+
     return PaginatingApiResponse(
-        schemas.Status.map_from_post(pager.results, request.identity),
+        statuses,
         request=request,
-        include_params=[
-            "limit",
-            "id",
-            "exclude_reblogs",
-            "exclude_replies",
-            "only_media",
-            "pinned",
-            "tagged",
-        ],
+        include_params=["limit", "id", "exclude_reblogs", "exclude_replies"],
     )
 
 
